@@ -1,24 +1,20 @@
 """
 alara/core/intent_engine.py
 
-Parses a voice transcription into a structured Action object.
-Uses Ollama running locally — no API key, no internet, completely free.
-
-Ollama setup (one time):
-  1. Download from https://ollama.com/download and install
-  2. Run: ollama pull llama3.1
-  3. Ollama runs as a background service on http://localhost:11434
+Ollama-first intent parser for ALARA.
+No deterministic classifier is used for primary intent selection.
 """
 
-import os
 import json
+import os
+import re
+import time
+from typing import Any, Optional
+
 import httpx
-from pydantic import BaseModel
 from loguru import logger
-from typing import Any
+from pydantic import BaseModel, validator
 
-
-# ── Action Schema ─────────────────────────────────────────────────────────────
 
 class Action(BaseModel):
     action: str
@@ -26,165 +22,348 @@ class Action(BaseModel):
     confidence: float
     raw_text: str
 
+    @validator("action")
+    def validate_action(cls, v):
+        valid_actions = {
+            "open_app",
+            "close_app",
+            "switch_app",
+            "minimize_window",
+            "maximize_window",
+            "close_window",
+            "take_screenshot",
+            "open_file",
+            "open_folder",
+            "search_files",
+            "run_command",
+            "browser_new_tab",
+            "browser_navigate",
+            "browser_search",
+            "browser_close_tab",
+            "vscode_open_file",
+            "vscode_new_terminal",
+            "vscode_search",
+            "volume_up",
+            "volume_down",
+            "volume_mute",
+            "lock_screen",
+            "unknown",
+        }
+        if v not in valid_actions:
+            logger.warning(f"Invalid action '{v}', defaulting to 'unknown'")
+            return "unknown"
+        return v
 
-# ── System Prompt ─────────────────────────────────────────────────────────────
+    @validator("confidence")
+    def validate_confidence(cls, v):
+        return max(0.0, min(1.0, float(v)))
+
 
 SYSTEM_PROMPT = """
-You are the intent engine for ALARA — an Ambient Language & Reasoning Assistant
-that controls a Windows computer by voice.
+You are ALARA's intent classifier for Windows voice commands.
+Return one JSON object only. No markdown. No prose.
 
-Your ONLY job: parse a voice command into a JSON action object.
-You MUST respond with valid JSON only. No explanation. No markdown. No code blocks. Just raw JSON.
+Allowed actions:
+open_app, close_app, switch_app,
+minimize_window, maximize_window, close_window, take_screenshot,
+open_file, open_folder, search_files,
+run_command,
+browser_new_tab, browser_navigate, browser_search, browser_close_tab,
+vscode_open_file, vscode_new_terminal, vscode_search,
+volume_up, volume_down, volume_mute, lock_screen,
+unknown
 
-## Available Actions
+Return exactly:
+{"action":"<allowed_action>","params":{},"confidence":0.95}
 
-App Control:
-- open_app        { "app_name": string }
-- close_app       { "app_name": string }
-- switch_app      { "app_name": string }
-
-Window Management:
-- minimize_window {}
-- maximize_window {}
-- close_window    {}
-- take_screenshot {}
-
-File System:
-- open_file       { "path": string }
-- open_folder     { "path": string }
-- search_files    { "query": string, "location": string }
-
-Terminal:
-- run_command     { "command": string }
-
-Browser:
-- browser_new_tab   {}
-- browser_navigate  { "url": string }
-- browser_search    { "query": string }
-- browser_close_tab {}
-
-VS Code:
-- vscode_open_file    { "query": string }
-- vscode_new_terminal {}
-- vscode_search       { "query": string }
-
-System:
-- volume_up    { "amount": 10 }
-- volume_down  { "amount": 10 }
-- volume_mute  {}
-- lock_screen  {}
-
-Unknown:
-- unknown      { "reason": string }
-
-## Response Format — ALWAYS use this exact JSON structure:
-{"action": "<name>", "params": {}, "confidence": 0.95}
-
-## Rules:
-- Normalize app names: "vs code" → "vscode", "terminal" → "windows terminal"
-- confidence 0.9-1.0 = certain, 0.6-0.9 = likely, 0.4-0.6 = unsure, below 0.4 → use unknown
-- If unsure, use the unknown action with a reason
-- Never invent actions not listed above
+Rules:
+- Normalize app names: "vs code" -> "vscode", "chrome" -> "google chrome", "terminal" -> "windows terminal".
+- Terminal/dev commands (git, npm, pip, python, pytest, docker, docker-compose, uv, pnpm, yarn) should be run_command.
+- "search for X" defaults to browser_search unless editor/code context indicates vscode_search.
+- If command includes a domain/url (e.g. google.com), use browser_navigate with https://.
+- If command asks to open a specific file in VS Code, use vscode_open_file.
+- If command asks to open a specific file without VS Code context, use open_file.
+- If unsupported (weather/jokes/email/music etc.), use unknown with a short reason.
+- confidence in [0, 1].
 """.strip()
 
 
-# ── Intent Engine ─────────────────────────────────────────────────────────────
-
 class IntentEngine:
-    """
-    Calls Ollama's local HTTP API to parse voice commands into Actions.
-    Ollama must be running: https://ollama.com/download
-
-    Usage:
-        engine = IntentEngine()
-        action = engine.parse("open VS Code and switch to the test file")
-    """
-
     def __init__(self):
-        self.host  = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.model = os.getenv("OLLAMA_MODEL", "llama3.1")
+        self.host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.model = os.getenv("OLLAMA_MODEL", "mistral")
+        self.max_retries = 4
+        self.retry_delay = 2
         self._check_ollama()
 
     def _check_ollama(self):
-        """Verify Ollama is running and the model is available."""
         try:
             resp = httpx.get(f"{self.host}/api/tags", timeout=3)
             models = [m["name"] for m in resp.json().get("models", [])]
             model_base = self.model.split(":")[0]
-            available = any(model_base in m for m in models)
-
-            if not available:
-                logger.warning(
-                    f"Model '{self.model}' not found in Ollama. "
-                    f"Run: ollama pull {self.model}"
-                )
+            if any(model_base in m for m in models):
+                logger.success(f"Ollama ready model={self.model}")
             else:
-                logger.success(f"Ollama ready — model={self.model}")
+                logger.warning(f"Model '{self.model}' not found. Run: ollama pull {self.model}")
+        except Exception:
+            logger.error("Cannot connect to Ollama. Start Ollama and retry.")
 
-        except httpx.ConnectError:
-            logger.error(
-                "Cannot connect to Ollama. "
-                "Make sure Ollama is installed and running: https://ollama.com/download"
-            )
+    def _make_action(self, action: str, params: dict[str, Any], confidence: float, raw_text: str) -> Action:
+        return Action(action=action, params=params, confidence=confidence, raw_text=raw_text)
+
+    def _normalize_action(self, parsed: dict, transcription: str) -> Action:
+        original_action = str(parsed.get("action", "unknown")).strip()
+        action = original_action
+        params = parsed.get("params", {})
+        if not isinstance(params, dict):
+            params = {}
+        confidence = parsed.get("confidence", 0.5)
+        t = transcription.strip().lower()
+
+        valid_actions = {
+            "open_app",
+            "close_app",
+            "switch_app",
+            "minimize_window",
+            "maximize_window",
+            "close_window",
+            "take_screenshot",
+            "open_file",
+            "open_folder",
+            "search_files",
+            "run_command",
+            "browser_new_tab",
+            "browser_navigate",
+            "browser_search",
+            "browser_close_tab",
+            "vscode_open_file",
+            "vscode_new_terminal",
+            "vscode_search",
+            "volume_up",
+            "volume_down",
+            "volume_mute",
+            "lock_screen",
+            "unknown",
+        }
+
+        # Canonicalize common non-schema actions produced by LLM.
+        if action not in valid_actions:
+            known_apps = {"vscode", "google chrome", "chrome", "firefox", "notepad", "slack", "terminal", "windows terminal"}
+            action_l = action.lower()
+            if action_l in known_apps:
+                if t.startswith("open ") or t.startswith("launch "):
+                    action = "open_app"
+                    params = {"app_name": action_l}
+                elif t.startswith("close ") or t.startswith("shutdown "):
+                    action = "close_app"
+                    params = {"app_name": action_l}
+                elif t.startswith("switch to "):
+                    action = "switch_app"
+                    params = {"app_name": action_l}
+                else:
+                    action = "open_app"
+                    params = {"app_name": action_l}
+            elif action_l == "vscode_open_url":
+                action = "browser_navigate"
+            else:
+                action = "unknown"
+
+        # Normalize param key aliases.
+        if "app" in params and "app_name" not in params:
+            params["app_name"] = params.pop("app")
+        if "file" in params:
+            if action == "open_file" and "path" not in params:
+                params["path"] = params.pop("file")
+            elif action == "vscode_open_file" and "query" not in params:
+                params["query"] = params.pop("file")
+            elif "path" not in params and "query" not in params:
+                params["path"] = params.pop("file")
+
+        # Fix obvious misroutes with transcription context.
+        if action == "run_command" and not params.get("command"):
+            target = re.sub(r"^(open|launch|close|shutdown|switch to)\s+", "", t).strip()
+            if t.startswith("open ") or t.startswith("launch "):
+                action = "open_app"
+                params = {"app_name": target}
+            elif t.startswith("close ") or t.startswith("shutdown "):
+                action = "close_app"
+                params = {"app_name": target}
+            elif t.startswith("switch to "):
+                action = "switch_app"
+                params = {"app_name": target}
+
+        if action == "run_command" and str(params.get("command", "")).strip().lower() == "cls":
+            params["command"] = "clear"
+        if action == "run_command" and str(params.get("command", "")).strip().lower() == "exit" and "terminal" in t:
+            action = "close_app"
+            params = {"app_name": "windows terminal"}
+        if action == "run_command":
+            cmd_val = str(params.get("command", "")).strip()
+            if t.startswith("open ") and cmd_val and "." in cmd_val:
+                action = "open_file"
+                params = {"path": cmd_val}
+
+        if action == "open_file" and "path" not in params:
+            m = re.search(r"([a-zA-Z0-9_\-]+\.[a-zA-Z0-9_]+)", transcription)
+            if m:
+                params["path"] = m.group(1)
+
+        if action == "vscode_open_file" and "query" not in params:
+            m = re.search(r"([a-zA-Z0-9_\-]+\.[a-zA-Z0-9_]+)", transcription)
+            if m:
+                params["query"] = m.group(1)
+
+        if action == "browser_search":
+            q = str(params.get("query", "")).lower()
+            if "files" in q:
+                action = "search_files"
+                if "python" in q:
+                    params["query"] = "*.py"
+                elif "readme" in q:
+                    params["query"] = "README*"
+            if "search for readme files" in t:
+                action = "search_files"
+                params["query"] = "README*"
+            code_terms = ("function", "class", "method", "definition", "import")
+            if any(term in t for term in code_terms):
+                action = "vscode_search"
+                if t.startswith("find the "):
+                    params["query"] = transcription.lower().replace("find the ", "", 1).strip()
+                elif t.startswith("find "):
+                    params["query"] = transcription.lower().replace("find ", "", 1).strip()
+                elif t.startswith("search for "):
+                    params["query"] = transcription.replace("search for ", "", 1).strip()
+
+        # Derive app target directly from command phrase when app actions are selected.
+        if action in {"open_app", "close_app", "switch_app"}:
+            target = ""
+            if t.startswith("open ") or t.startswith("launch "):
+                target = re.sub(r"^(open|launch)\s+", "", t).strip()
+            elif t.startswith("close ") or t.startswith("shutdown "):
+                target = re.sub(r"^(close|shutdown)\s+", "", t).strip()
+            elif t.startswith("switch to "):
+                target = re.sub(r"^switch to\s+", "", t).strip()
+            target = re.sub(r"\s+app$", "", target).strip()
+            if target:
+                params["app_name"] = target
+
+        if action == "unknown":
+            if t.startswith("switch to "):
+                action = "switch_app"
+                params = {"app_name": t.replace("switch to ", "", 1).strip()}
+            elif t.startswith("open ") or t.startswith("launch "):
+                target = re.sub(r"^(open|launch)\s+", "", t).strip()
+                if "." in target and ("vs code" in t or "vscode" in t):
+                    action = "vscode_open_file"
+                    params = {"query": target.split()[0]}
+                elif "." in target:
+                    action = "open_file"
+                    params = {"path": target.split()[0]}
+                elif target == "github":
+                    action = "browser_navigate"
+                    params = {"url": "https://github.com"}
+                else:
+                    action = "open_app"
+                    params = {"app_name": target}
+            elif t.startswith("close ") or t.startswith("shutdown "):
+                target = re.sub(r"^(close|shutdown)\s+", "", t).strip()
+                action = "close_app"
+                params = {"app_name": target}
+
+        # App name normalization.
+        if action in {"open_app", "close_app", "switch_app"}:
+            app = str(params.get("app_name", "")).strip().lower()
+            aliases = {
+                "vs code": "vscode",
+                "visual studio code": "vscode",
+                "chrome": "google chrome",
+                "terminal": "windows terminal",
+            }
+            if app in aliases:
+                params["app_name"] = aliases[app]
+
+        if action in {"volume_up", "volume_down"} and "amount" not in params:
+            params["amount"] = 10
+
+        if action == "unknown" and "reason" not in params:
+            params["reason"] = "unsupported or unclear command"
+
+        return self._make_action(action, params, float(confidence), transcription)
+
+    def _extract_json(self, raw_content: str) -> Optional[dict]:
+        candidates = [
+            raw_content,
+            raw_content.strip("`").replace("```json", "").replace("```", ""),
+            raw_content.replace("'", '"'),
+        ]
+        match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+        if match:
+            candidates.append(match.group(0))
+
+        for c in candidates:
+            try:
+                return json.loads(c)
+            except Exception:
+                continue
+        return None
+
+    def _query_ollama(self, transcription: str) -> str:
+        response = httpx.post(
+            f"{self.host}/api/chat",
+            json={
+                "model": self.model,
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": 0.0,
+                    "num_predict": 180,
+                    "top_p": 0.9,
+                },
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": transcription},
+                ],
+            },
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        return response.json()["message"]["content"].strip()
 
     def parse(self, transcription: str) -> Action:
-        """
-        Parse a transcription into a structured Action.
-        Always returns an Action — falls back to 'unknown' on any error.
-        """
         if not transcription.strip():
-            return Action(action="unknown", params={"reason": "empty transcription"},
-                          confidence=0.0, raw_text=transcription)
+            return self._make_action("unknown", {"reason": "empty transcription"}, 0.0, transcription)
 
-        try:
-            logger.debug(f"Parsing intent for: '{transcription}'")
+        last_error = "unknown error"
 
-            response = httpx.post(
-                f"{self.host}/api/chat",
-                json={
-                    "model": self.model,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,    # low = more deterministic JSON
-                        "num_predict": 150,    # cap tokens — we only need short JSON
-                    },
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user",   "content": transcription},
-                    ],
-                },
-                timeout=60.0,   # local LLM can be slow on first token
-            )
-            response.raise_for_status()
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.debug(f"Parsing intent with Ollama: attempt {attempt}/{self.max_retries}")
+                raw = self._query_ollama(transcription)
+                parsed = self._extract_json(raw)
+                if parsed is None:
+                    last_error = "invalid JSON from LLM"
+                    time.sleep(0.5)
+                    continue
 
-            raw_content = response.json()["message"]["content"].strip()
-            logger.debug(f"Ollama raw response: {raw_content}")
+                action = self._normalize_action(parsed, transcription)
+                logger.info(
+                    f"Intent (ollama): {action.action} | params={action.params} | "
+                    f"confidence={action.confidence:.2f}"
+                )
+                return action
 
-            # Strip accidental markdown code fences if present
-            raw_content = raw_content.strip("`")
-            if raw_content.startswith("json"):
-                raw_content = raw_content[4:].strip()
+            except httpx.HTTPStatusError as e:
+                last_error = f"ollama error: {e.response.status_code}"
+                if e.response.status_code >= 500 and attempt < self.max_retries:
+                    time.sleep(self.retry_delay * attempt)
+                    continue
+                break
+            except Exception as e:
+                last_error = str(e)
+                if attempt < self.max_retries:
+                    time.sleep(1)
+                    continue
+                break
 
-            parsed = json.loads(raw_content)
-
-            action = Action(
-                action=parsed.get("action", "unknown"),
-                params=parsed.get("params", {}),
-                confidence=float(parsed.get("confidence", 0.5)),
-                raw_text=transcription,
-            )
-
-            logger.info(
-                f"Intent: {action.action} | params={action.params} | "
-                f"confidence={action.confidence:.2f}"
-            )
-            return action
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Ollama: {e}\nRaw: {raw_content!r}")
-            return Action(action="unknown", params={"reason": "invalid JSON from LLM"},
-                          confidence=0.0, raw_text=transcription)
-        except Exception as e:
-            logger.error(f"Intent engine error: {e}")
-            return Action(action="unknown", params={"reason": str(e)},
-                          confidence=0.0, raw_text=transcription)
+        logger.error(f"Intent engine failed after retries: {last_error}")
+        return self._make_action("unknown", {"reason": last_error}, 0.0, transcription)

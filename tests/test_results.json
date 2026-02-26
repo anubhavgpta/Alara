@@ -1,0 +1,444 @@
+{
+  "summary": {
+    "total_tests": 50,
+    "passed": 46,
+    "failed": 4,
+    "accuracy": 92.0
+  },
+  "category_results": {
+    "app_control": {
+      "passed": 10,
+      "total": 10
+    },
+    "terminal": {
+      "passed": 8,
+      "total": 8
+    },
+    "file_operations": {
+      "passed": 7,
+      "total": 7
+    },
+    "browser": {
+      "passed": 8,
+      "total": 8
+    },
+    "vscode": {
+      "passed": 3,
+      "total": 5
+    },
+    "window_management": {
+      "passed": 4,
+      "total": 4
+    },
+    "system": {
+      "passed": 2,
+      "total": 4
+    },
+    "unknown": {
+      "passed": 4,
+      "total": 4
+    }
+  },
+  "detailed_results": [
+    {
+      "command": "open VS Code",
+      "expected": "open_app",
+      "actual": "open_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "launch Chrome",
+      "expected": "open_app",
+      "actual": "open_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "open terminal",
+      "expected": "open_app",
+      "actual": "open_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "close Chrome",
+      "expected": "close_app",
+      "actual": "close_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "shutdown VS Code",
+      "expected": "close_app",
+      "actual": "close_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "switch to Firefox",
+      "expected": "switch_app",
+      "actual": "switch_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "open Notepad",
+      "expected": "open_app",
+      "actual": "open_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "close terminal",
+      "expected": "close_app",
+      "actual": "close_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "launch Slack",
+      "expected": "open_app",
+      "actual": "open_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "switch to VS Code",
+      "expected": "switch_app",
+      "actual": "switch_app",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "app_control"
+    },
+    {
+      "command": "run git status",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "git pull origin main",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "npm install",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "python main.py",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "run pytest",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "docker-compose up",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "clear terminal",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "pip install requests",
+      "expected": "run_command",
+      "actual": "run_command",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "terminal"
+    },
+    {
+      "command": "open main.py",
+      "expected": "open_file",
+      "actual": "open_file",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "file_operations"
+    },
+    {
+      "command": "open my downloads folder",
+      "expected": "open_folder",
+      "actual": "open_folder",
+      "passed": true,
+      "confidence": 0.85,
+      "category": "file_operations"
+    },
+    {
+      "command": "search for python files",
+      "expected": "search_files",
+      "actual": "search_files",
+      "passed": true,
+      "confidence": 0.8,
+      "category": "file_operations"
+    },
+    {
+      "command": "open the config file",
+      "expected": "open_file",
+      "actual": "open_file",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "file_operations"
+    },
+    {
+      "command": "open desktop folder",
+      "expected": "open_folder",
+      "actual": "open_folder",
+      "passed": true,
+      "confidence": 0.85,
+      "category": "file_operations"
+    },
+    {
+      "command": "search for README files",
+      "expected": "search_files",
+      "actual": "search_files",
+      "passed": true,
+      "confidence": 0.8,
+      "category": "file_operations"
+    },
+    {
+      "command": "open requirements.txt",
+      "expected": "open_file",
+      "actual": "open_file",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "file_operations"
+    },
+    {
+      "command": "open GitHub",
+      "expected": "browser_navigate",
+      "actual": "browser_navigate",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "search for Python tutorials",
+      "expected": "browser_search",
+      "actual": "browser_search",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "navigate to stackoverflow.com",
+      "expected": "browser_navigate",
+      "actual": "browser_navigate",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "open a new tab",
+      "expected": "browser_new_tab",
+      "actual": "browser_new_tab",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "search for docker documentation",
+      "expected": "browser_search",
+      "actual": "browser_search",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "go to google.com",
+      "expected": "browser_navigate",
+      "actual": "browser_navigate",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "close this tab",
+      "expected": "browser_close_tab",
+      "actual": "browser_close_tab",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "search for react hooks",
+      "expected": "browser_search",
+      "actual": "browser_search",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "browser"
+    },
+    {
+      "command": "open the app.py file in VS Code",
+      "expected": "vscode_open_file",
+      "actual": "vscode_open_file",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "vscode"
+    },
+    {
+      "command": "search for function definitions",
+      "expected": "vscode_search",
+      "actual": "vscode_search",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "vscode"
+    },
+    {
+      "command": "open a new terminal in VS Code",
+      "expected": "vscode_new_terminal",
+      "actual": "open_app",
+      "passed": false,
+      "confidence": 0.95,
+      "category": "vscode"
+    },
+    {
+      "command": "find the main function",
+      "expected": "vscode_search",
+      "actual": "vscode_search",
+      "passed": true,
+      "confidence": 0.9,
+      "category": "vscode"
+    },
+    {
+      "command": "open utils.py in VS Code",
+      "expected": "vscode_open_file",
+      "actual": "open_app",
+      "passed": false,
+      "confidence": 0.95,
+      "category": "vscode"
+    },
+    {
+      "command": "minimize window",
+      "expected": "minimize_window",
+      "actual": "minimize_window",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "window_management"
+    },
+    {
+      "command": "maximize this window",
+      "expected": "maximize_window",
+      "actual": "maximize_window",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "window_management"
+    },
+    {
+      "command": "take a screenshot",
+      "expected": "take_screenshot",
+      "actual": "take_screenshot",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "window_management"
+    },
+    {
+      "command": "close this window",
+      "expected": "close_window",
+      "actual": "close_window",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "window_management"
+    },
+    {
+      "command": "turn up the volume",
+      "expected": "volume_up",
+      "actual": "error",
+      "passed": false,
+      "confidence": 0.0,
+      "category": "system"
+    },
+    {
+      "command": "volume down",
+      "expected": "volume_down",
+      "actual": "error",
+      "passed": false,
+      "confidence": 0.0,
+      "category": "system"
+    },
+    {
+      "command": "mute the volume",
+      "expected": "volume_mute",
+      "actual": "volume_mute",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "system"
+    },
+    {
+      "command": "lock my screen",
+      "expected": "lock_screen",
+      "actual": "lock_screen",
+      "passed": true,
+      "confidence": 0.95,
+      "category": "system"
+    },
+    {
+      "command": "what's the weather like",
+      "expected": "unknown",
+      "actual": "unknown",
+      "passed": true,
+      "confidence": 0.7,
+      "category": "unknown"
+    },
+    {
+      "command": "tell me a joke",
+      "expected": "unknown",
+      "actual": "unknown",
+      "passed": true,
+      "confidence": 0.7,
+      "category": "unknown"
+    },
+    {
+      "command": "send an email",
+      "expected": "unknown",
+      "actual": "unknown",
+      "passed": true,
+      "confidence": 0.7,
+      "category": "unknown"
+    },
+    {
+      "command": "play some music",
+      "expected": "unknown",
+      "actual": "unknown",
+      "passed": true,
+      "confidence": 0.7,
+      "category": "unknown"
+    }
+  ]
+}
