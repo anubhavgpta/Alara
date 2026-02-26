@@ -69,3 +69,5 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+test_results.json
+tests/test_results.json

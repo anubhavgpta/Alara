@@ -1,34 +1,27 @@
 """
 alara/core/wake_word.py
 
-Listens continuously on the default microphone for the wake word.
-Uses OpenWakeWord for local, CPU-efficient detection.
-Fires a callback when the wake word is detected.
+Continuously listens for wake activation.
+Primary path uses OpenWakeWord; fallback path uses volume-based triggering.
 """
 
+import os
 import threading
+
 import numpy as np
 import sounddevice as sd
-from openwakeword.model import Model
 from loguru import logger
-import os
+from openwakeword.model import Model
 
 
-SAMPLE_RATE = 16000       # Hz — openwakeword requires 16kHz
-CHUNK_SIZE = 1280         # samples per chunk (~80ms at 16kHz)
+SAMPLE_RATE = 16000
+CHUNK_SIZE = 1280
 CHANNELS = 1
 
 
 class WakeWordDetector:
     """
-    Runs in a background thread, continuously listening for the wake word.
-    Calls on_detected() when confidence exceeds the threshold.
-
-    Usage:
-        detector = WakeWordDetector(on_detected=my_callback)
-        detector.start()
-        ...
-        detector.stop()
+    Background wake detector that calls `on_detected` on trigger.
     """
 
     def __init__(self, on_detected: callable, threshold: float = None):
@@ -38,37 +31,32 @@ class WakeWordDetector:
         self._running = False
         self._thread = None
         self._model = None
-        self._use_legacy_detector = False  # Flag for fallback mode
+        self._use_volume_fallback = False
 
     def _load_model(self):
-        """Load the OpenWakeWord model. Falls back to simple volume-based detection."""
         logger.info(f"Loading wake word model: {self.wake_word}")
         try:
-            # Try to load OpenWakeWord
             self._model = Model(
                 wakeword_models=[self.wake_word],
                 enable_speex_noise_suppression=True,
             )
-            self._use_legacy_detector = False
+            self._use_volume_fallback = False
             logger.success("Wake word model loaded (OpenWakeWord)")
         except Exception as e:
             logger.warning(
                 f"OpenWakeWord unavailable ({type(e).__name__}), "
-                f"falling back to volume-based detector"
+                "switching to volume-based fallback"
             )
-            self._use_legacy_detector = True
+            self._use_volume_fallback = True
 
     def _listen_loop(self):
-        """Main listening loop — runs in background thread."""
-        if self._use_legacy_detector:
+        if self._use_volume_fallback:
             self._listen_loop_volume_based()
         else:
             self._listen_loop_ml_based()
 
     def _listen_loop_ml_based(self):
-        """ML-based wake word detection (OpenWakeWord)."""
-        logger.info(f"Wake word detector active (threshold={self.threshold})")
-
+        logger.info(f"Wake detector active (threshold={self.threshold:.2f})")
         with sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
@@ -78,35 +66,25 @@ class WakeWordDetector:
             while self._running:
                 audio_chunk, _ = stream.read(CHUNK_SIZE)
                 audio_np = np.frombuffer(audio_chunk, dtype=np.int16)
-
-                # Feed chunk to model and get predictions
                 predictions = self._model.predict(audio_np)
 
                 for model_name, confidence in predictions.items():
                     if confidence >= self.threshold:
-                        logger.info(
-                            f"Wake word detected! [{model_name}] confidence={confidence:.2f}"
-                        )
-                        # Reset model state to avoid double-firing
+                        logger.info(f"Wake word detected [{model_name}] confidence={confidence:.2f}")
                         self._model.reset()
-                        # Fire callback (non-blocking)
-                        threading.Thread(
-                            target=self.on_detected, daemon=True
-                        ).start()
+                        threading.Thread(target=self.on_detected, daemon=True).start()
                         break
 
     def _listen_loop_volume_based(self):
         """
-        Fallback: Simple volume-based activation.
-        Detects loud speech bursts as wake word trigger.
-        Used when OpenWakeWord is unavailable (Windows/TFLite issue).
+        Fallback detector when OpenWakeWord is unavailable.
+        Trigger on sustained speech-level RMS.
         """
-        logger.info("Wake word detector active (volume-based, Windows fallback)")
-        
-        # These settings detect speech more reliably
-        volume_threshold = 1000  # RMS threshold for speech detection (lowered for sensitivity)
-        min_duration_chunks = 2  # ~160ms of speech needed (faster trigger)
-        silence_limit = 10  # Reset after 10 chunks of silence
+        logger.info("Wake detector active (volume-based fallback)")
+
+        volume_threshold = 1000
+        min_duration_chunks = 2
+        silence_limit = 10
 
         with sd.InputStream(
             samplerate=SAMPLE_RATE,
@@ -120,41 +98,31 @@ class WakeWordDetector:
             while self._running:
                 audio_chunk, _ = stream.read(CHUNK_SIZE)
                 audio_np = np.frombuffer(audio_chunk, dtype=np.int16).astype(float)
-
-                # Calculate RMS (root mean square) as volume indicator
                 rms = np.sqrt(np.mean(audio_np ** 2))
 
                 if rms > volume_threshold:
-                    # Speech detected
                     speech_chunks += 1
                     silent_chunks = 0
-
                     if speech_chunks >= min_duration_chunks:
-                        logger.info(f"Voice detected! (RMS={rms:.0f})")
-                        speech_chunks = 0  # Reset to avoid repeated fires
-                        threading.Thread(
-                            target=self.on_detected, daemon=True
-                        ).start()
+                        logger.info(f"Voice trigger detected (RMS={rms:.0f})")
+                        speech_chunks = 0
+                        threading.Thread(target=self.on_detected, daemon=True).start()
                 else:
-                    # Silence
                     silent_chunks += 1
                     if silent_chunks > silence_limit:
-                        speech_chunks = 0  # Reset counter
+                        speech_chunks = 0
 
     def start(self):
         """Start listening in a background thread."""
         if self._running:
             logger.warning("WakeWordDetector already running")
             return
-        try:
-            self._load_model()
-            self._running = True
-            self._thread = threading.Thread(target=self._listen_loop, daemon=True)
-            self._thread.start()
-            logger.success("WakeWordDetector started")
-        except Exception as e:
-            logger.error(f"Failed to start wake word detector: {e}")
-            raise
+
+        self._load_model()
+        self._running = True
+        self._thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self._thread.start()
+        logger.success("WakeWordDetector started")
 
     def stop(self):
         """Stop the listening thread."""

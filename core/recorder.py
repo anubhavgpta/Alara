@@ -1,51 +1,41 @@
 """
 alara/core/recorder.py
 
-Captures audio from the microphone after wake word detection.
-Stops recording after a configurable silence timeout.
-Returns raw PCM bytes ready to send to Deepgram.
+Captures microphone audio after wake-word detection and stops on silence.
+Returns WAV bytes for the transcriber.
 """
 
 import io
+import os
 import wave
+
 import numpy as np
 import sounddevice as sd
 from loguru import logger
-import os
 
 
 SAMPLE_RATE = 16000
 CHANNELS = 1
-CHUNK_SIZE = 1024         # samples per read
-SILENCE_THRESHOLD = 500   # RMS below this = silence
-MIN_RECORDING_MS = 300    # always record at least 300ms after wake word
+CHUNK_SIZE = 1024
+SILENCE_THRESHOLD = 500
+MIN_RECORDING_MS = 300
 
 
 class AudioRecorder:
     """
-    Records a single voice command after the wake word fires.
-
-    Returns WAV bytes when silence is detected (or max duration reached).
-
-    Usage:
-        recorder = AudioRecorder()
-        wav_bytes = recorder.record()   # blocks until done
+    Records one voice command after wake trigger.
     """
 
     def __init__(self):
         self.silence_timeout_ms = int(os.getenv("SILENCE_TIMEOUT_MS", 1500))
-        self.max_duration_s = 15  # hard cap — no command should be longer
+        self.max_duration_s = 15
 
     def _is_silent(self, audio_chunk: np.ndarray) -> bool:
-        """Returns True if the chunk's RMS energy is below silence threshold."""
         rms = np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
         return rms < SILENCE_THRESHOLD
 
     def record(self) -> bytes:
-        """
-        Record audio until silence is detected.
-        Returns WAV-encoded bytes.
-        """
+        """Record until silence is detected, then return WAV bytes."""
         logger.info("Recording command...")
         frames = []
         silent_chunks = 0
@@ -70,7 +60,7 @@ class AudioRecorder:
                 total_chunks += 1
 
                 if total_chunks < min_chunks:
-                    continue  # always record minimum duration
+                    continue
 
                 if self._is_silent(audio_np):
                     silent_chunks += 1
@@ -81,22 +71,19 @@ class AudioRecorder:
                         )
                         break
                 else:
-                    silent_chunks = 0  # reset on any speech
+                    silent_chunks = 0
 
         if not frames:
             logger.warning("No audio captured")
             return b""
 
-        # Encode to WAV bytes
-        audio_data = np.concatenate(frames, axis=0)
-        return self._to_wav_bytes(audio_data)
+        return self._to_wav_bytes(np.concatenate(frames, axis=0))
 
     def _to_wav_bytes(self, audio_np: np.ndarray) -> bytes:
-        """Convert numpy audio array to WAV bytes."""
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)  # 16-bit = 2 bytes
+            wf.setsampwidth(2)
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(audio_np.tobytes())
         buf.seek(0)

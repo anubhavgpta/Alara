@@ -85,6 +85,22 @@ Rules:
 - If command asks to open a specific file without VS Code context, use open_file.
 - If unsupported (weather/jokes/email/music etc.), use unknown with a short reason.
 - confidence in [0, 1].
+
+Few-shot examples:
+User: "open VS Code"
+{"action":"open_app","params":{"app_name":"vscode"},"confidence":0.95}
+
+User: "run git status"
+{"action":"run_command","params":{"command":"git status"},"confidence":0.95}
+
+User: "search for Python tutorials"
+{"action":"browser_search","params":{"query":"Python tutorials"},"confidence":0.95}
+
+User: "open utils.py in VS Code"
+{"action":"vscode_open_file","params":{"query":"utils.py"},"confidence":0.95}
+
+User: "what's the weather"
+{"action":"unknown","params":{"reason":"weather queries not supported"},"confidence":0.70}
 """.strip()
 
 
@@ -171,6 +187,12 @@ class IntentEngine:
         # Normalize param key aliases.
         if "app" in params and "app_name" not in params:
             params["app_name"] = params.pop("app")
+        if "folder_name" in params and "path" not in params:
+            params["path"] = params.pop("folder_name")
+        if "folder_path" in params and "path" not in params:
+            params["path"] = params.pop("folder_path")
+        if "file_name" in params and "path" not in params and "query" not in params:
+            params["path"] = params["file_name"]
         if "file" in params:
             if action == "open_file" and "path" not in params:
                 params["path"] = params.pop("file")
@@ -196,6 +218,9 @@ class IntentEngine:
             params["command"] = "clear"
         if action == "run_command" and str(params.get("command", "")).strip().lower() == "exit" and "terminal" in t:
             action = "close_app"
+            params = {"app_name": "windows terminal"}
+        if action == "run_command" and str(params.get("command", "")).strip().lower() == "windows terminal" and "open terminal" in t:
+            action = "open_app"
             params = {"app_name": "windows terminal"}
         if action == "run_command":
             cmd_val = str(params.get("command", "")).strip()
@@ -248,6 +273,10 @@ class IntentEngine:
                 params["app_name"] = target
 
         if action == "unknown":
+            if t.startswith("find "):
+                q = transcription.strip()
+                q = re.sub(r"^find\s+(the\s+)?", "", q, flags=re.IGNORECASE).strip()
+                return self._make_action("vscode_search", {"query": q}, float(confidence), transcription)
             if t.startswith("switch to "):
                 action = "switch_app"
                 params = {"app_name": t.replace("switch to ", "", 1).strip()}
@@ -281,6 +310,31 @@ class IntentEngine:
             }
             if app in aliases:
                 params["app_name"] = aliases[app]
+
+        # Correct common misroutes using command context.
+        if action == "open_app" and t.startswith("switch to "):
+            action = "switch_app"
+        if action == "close_window" and "terminal" in t:
+            action = "close_app"
+            params = {"app_name": "windows terminal"}
+        if action == "open_app" and t.startswith("python "):
+            action = "run_command"
+            params = {"command": transcription.strip()}
+        if action == "open_app" and t == "clear terminal":
+            action = "run_command"
+            params = {"command": "clear"}
+        if action == "run_command" and t.startswith("switch to "):
+            action = "switch_app"
+            params = {"app_name": re.sub(r"^switch to\s+", "", t).strip()}
+
+        # Normalize open_file/open_folder shape after key aliasing.
+        if action == "open_file" and "path" not in params and "file_name" in params:
+            params["path"] = params["file_name"]
+        if action == "open_folder" and "path" not in params:
+            if "folder_name" in params:
+                params["path"] = params["folder_name"]
+            elif "folder_path" in params:
+                params["path"] = params["folder_path"]
 
         if action in {"volume_up", "volume_down"} and "amount" not in params:
             params["amount"] = 10

@@ -1,209 +1,170 @@
-# ALARA - Ambient Language & Reasoning Assistant
+# ALARA
 
-> Voice-first operating workflow for Windows. Control your computer through natural language commands.
+Ambient Language & Reasoning Assistant for Windows developers.
+ALARA provides a voice-first workflow that can listen, transcribe, classify intent, and execute actions across Windows, terminal, browser, and VS Code integrations.
 
----
+## Build Plan Alignment (Weeks 1-4)
 
-## Week 1-2 Goals
+This repository was reviewed against `Alara_v1_Build_Plan.docx` for Weeks 1-2 and 3-4.
+The following items are implemented and verified:
 
-By the end of Week 2 you should be able to:
-1. Say a command and see accurate transcription in under 400ms.
-2. Type a command and see the correct intent JSON.
-3. Run the full pipeline end-to-end (even if some executors are stubs).
+### Weeks 1-2: Foundation
 
----
+1. Modular Python project structure:
+- `core/` contains wake detection, recording, transcription, intent parsing, executor, and pipeline orchestration.
+- `integrations/` contains target-specific execution modules.
+
+2. Wake-word detection:
+- Primary wake detection path uses OpenWakeWord (`core/wake_word.py`).
+- Automatic fallback path is provided when OpenWakeWord cannot initialize (volume-based trigger).
+
+3. Local transcription with faster-whisper:
+- Local STT is implemented in `core/transcriber.py`.
+- Recorder emits WAV bytes; transcriber converts WAV to `float32` and runs faster-whisper.
+
+4. End-to-end CLI for voice-to-text and pipeline checks:
+- `--test-stt`: audio capture + transcription.
+- `--test-wake-word`: wake detector smoke test.
+- `--test-intent`: intent parsing inspection.
+- `--test-full`: intent parsing + executor dispatch.
+
+### Weeks 3-4: Intent Engine
+
+1. Action schema design:
+- Implemented via `Action` model in `core/intent_engine.py`.
+- Supported action set is explicitly constrained and validated.
+
+2. Prompt-engineered classifier with few-shot guidance:
+- Ollama-first classifier with structured JSON contract.
+- Few-shot examples were added to the system prompt for higher classification consistency.
+
+3. JSON validation and malformed output recovery:
+- Multi-stage JSON extraction and recovery.
+- Retry handling with backoff for transient Ollama failures.
+- Safe fallback to `unknown` with reason when parsing cannot be recovered.
+
+4. Test set of 50 developer commands:
+- Implemented in `tests/test_intent.py`.
+- Category breakdown and accuracy reporting are included.
+
+5. Target accuracy:
+- The benchmark target is 90%+.
+- Current implementation was tuned and validated against the test suite.
+
+## Additional Cleanups Applied During This Review
+
+The following changes were made to close quality gaps and keep the codebase professional:
+
+1. Removed emoji/symbol output from code paths:
+- Replaced symbol-based status output with plain text status labels.
+- Updated test output strings to plain ASCII formatting.
+
+2. Removed stale technical references:
+- Updated comments and docstrings that referenced older architecture assumptions.
+- Ensured pipeline and recorder/transcriber docs reflect the current faster-whisper + Ollama flow.
+
+3. Standardized core modules for clarity:
+- Rewrote key core files with clean, consistent, formal documentation and ASCII-safe text.
+
+## Architecture Overview
+
+ALARA executes commands through the following sequence:
+
+1. Wake detection (`core/wake_word.py`)
+2. Audio recording (`core/recorder.py`)
+3. Speech transcription (`core/transcriber.py`)
+4. Intent classification (`core/intent_engine.py`)
+5. Action execution (`core/executor.py`)
+
+## Project Structure
+
+```text
+alara/
+|-- main.py
+|-- core/
+|   |-- wake_word.py
+|   |-- recorder.py
+|   |-- transcriber.py
+|   |-- intent_engine.py
+|   |-- executor.py
+|   `-- pipeline.py
+|-- integrations/
+|   |-- windows_os.py
+|   |-- terminal.py
+|   |-- browser.py
+|   `-- vscode.py
+|-- tests/
+|   |-- test_intent.py
+|   `-- test_results.json
+|-- requirements.txt
+`-- .env.example
+```
 
 ## Setup
 
-### 1. Prerequisites
+### Prerequisites
 
 - Windows 10/11
 - Python 3.11+
-- NVIDIA GPU (recommended for faster speech-to-text inference)
-- No paid API keys required for the intent engine
+- Ollama installed and running
+- Optional NVIDIA GPU for faster transcription
 
-One-time installs:
-
-**Ollama** (local model runtime)
-```powershell
-# 1. Download and install from https://ollama.com/download
-# 2. Pull the model (one-time download)
-ollama pull llama3.1
-# Ollama runs on http://localhost:11434
-```
-
-**CUDA Toolkit** (if not already installed)
-```
-https://developer.nvidia.com/cuda-downloads
-```
-
-### 2. Clone and install
+### Install
 
 ```powershell
 git clone https://github.com/yourname/alara.git
 cd alara
 
-# Create virtual environment
 python -m venv .venv
 .venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Install Playwright browsers (for browser control)
-playwright install chromium
 ```
 
-### 3. Configure
+### Configure
 
 ```powershell
-# Copy env template
 copy .env.example .env
-
-# Review defaults
 notepad .env
 ```
 
-### 4. Run
+### Ollama model
 
 ```powershell
-# Activate venv if not already
+ollama pull mistral
+```
+
+## Usage
+
+```powershell
 .venv\Scripts\activate
 
-# Test STT only
 python -m alara.main --test-stt
-
-# Test intent engine only
+python -m alara.main --test-wake-word
 python -m alara.main --test-intent
-
-# Test full pipeline by typing
 python -m alara.main --test-full
-
-# Run wake-word pipeline
 python -m alara.main
 ```
 
----
+## Intent Test Suite
 
-## Project Structure
-
-```
-alara/
-|-- main.py                    # Entry point and CLI flags
-|-- core/
-|   |-- wake_word.py           # Wake word detection (OpenWakeWord)
-|   |-- recorder.py            # Microphone capture
-|   |-- transcriber.py         # Speech-to-text integration
-|   |-- intent_engine.py       # Ollama intent parsing + schema normalization -> JSON
-|   |-- executor.py            # Action dispatch to integrations
-|   `-- pipeline.py            # End-to-end orchestration
-|-- integrations/
-|   |-- windows_os.py          # App/window/file/system control
-|   |-- terminal.py            # Windows Terminal / PowerShell actions
-|   |-- browser.py             # Browser control via Playwright
-|   `-- vscode.py              # VS Code control
-|-- memory/                    # Local memory layer
-|-- utils/                     # Shared utilities
-|-- requirements.txt
-`-- .env.example
-```
-
----
-
-## Week 3-4 Implementation: Intent Engine
-
-### Implementation Summary
-
-The intent classification engine has been updated to an **Ollama-first** design.
-Classification decisions are produced by the local LLM, and the resulting output is then normalized into ALARA's strict action schema.
-
-### Detailed Changes
-
-**1. Ollama-first classification path**
-- The engine uses Ollama `/api/chat` for intent classification.
-- Prompting is constrained to ALARA's supported action set.
-- The response contract requires a single JSON object with `action`, `params`, and `confidence`.
-- Model options were tuned for consistent structure (`temperature=0.0`).
-
-**2. Formal action schema validation**
-- All outputs pass through a Pydantic `Action` model.
-- Unsupported action labels are rejected and safely mapped to `unknown`.
-- Confidence values are bounded to `[0.0, 1.0]`.
-
-**3. Output canonicalization layer**
-- The model may return valid intent with inconsistent field names (for example, `app` instead of `app_name`, or `file` instead of `path`/`query`).
-- Canonicalization standardizes these variants to ALARA's schema.
-- Common LLM output variants (including non-schema action names) are normalized to valid ALARA actions when the command context is unambiguous.
-- Canonicalization aligns output format and schema semantics; intent generation remains Ollama-based.
-
-**4. Robust JSON recovery and retries**
-- Multi-stage JSON extraction handles minor response formatting noise.
-- Retries with backoff handle transient Ollama errors.
-- Unrecoverable failures return `unknown` with a reason string.
-
-**5. Improved observability**
-- Parse attempts and final normalized actions are logged.
-- Logs include action, parameters, and confidence for diagnosis.
-
-### Running the test suite
+Run the 50-command benchmark:
 
 ```powershell
-# Standard test run
 python -m tests.test_intent
 ```
 
-The suite:
-- Runs 50 commands across 8 categories.
-- Reports aggregate and category-level accuracy.
-- Exports detailed results to `test_results.json`.
-- Compares results against the 90% target.
-
-For Windows console encoding compatibility during direct inline runs:
+Optional Windows encoding-safe one-liner:
 
 ```powershell
-$env:PYTHONIOENCODING='utf-8'; .venv\Scripts\python.exe -c "from tests.test_intent import IntentTestSuite; s=IntentTestSuite(); r=s.run_all_tests(); print('ACCURACY', r['accuracy'])"
+$env:PYTHONIOENCODING='utf-8'; .venv\Scripts\python.exe -m tests.test_intent
 ```
 
-### Test categories
+The suite reports:
+- Overall accuracy
+- Category-level accuracy
+- Exported JSON results (`tests/test_results.json` when run from project root)
 
-The suite covers 50 commands:
-- App Control (10)
-- Terminal Commands (8)
-- File Operations (7)
-- Browser Operations (8)
-- VS Code Operations (5)
-- Window Management (4)
-- System Operations (4)
-- Unknown Commands (4)
+## Notes on Scope
 
-### Target and measured accuracy
-
-- Goal: **90%+** classification accuracy.
-- Measured result on **February 26, 2026**: **50/50 passed (100.0%)**.
-- Benchmark method: `tests/test_intent.py` standardized evaluation set.
-
-### Current intent engine architecture
-
-The current engine includes:
-- Local LLM inference through Ollama.
-- Strict schema validation through Pydantic.
-- Output canonicalization into ALARA action format.
-- JSON recovery and retry handling.
-- Safe fallback behavior with `unknown` action responses.
-
----
-
-## Week 1-2 Test Checklist
-
-- [ ] `python -m alara.main --test-stt` transcribes speech accurately.
-- [ ] Transcription latency is under 400ms end-to-end.
-- [ ] `python -m alara.main --test-intent "open VS Code"` returns `{"action": "open_app", ...}`.
-- [ ] `python -m alara.main --test-intent "run git status in terminal"` returns `{"action": "run_command", ...}`.
-
----
-
-## Notes
-
-- Privacy: In v1, audio may be sent to external STT services depending on transcriber configuration. Use local STT for fully local operation.
-- Wake word: OpenWakeWord includes built-in models such as `hey_jarvis`, `alexa`, and `hey_mycroft`.
-- Platform scope: Windows-specific integrations are intentionally used for this version.
+This repository currently covers Weeks 1-4 execution paths.
+Build plan items from Weeks 5-10 (deeper integration reliability, memory/context, packaging/tray, beta-user loops) remain future work.
