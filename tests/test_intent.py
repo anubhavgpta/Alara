@@ -1,4 +1,4 @@
-"""
+﻿"""
 tests/test_intent.py
 
 Intent classification benchmark for ALARA.
@@ -191,7 +191,7 @@ def main():
         IntentEngine()
     except Exception as e:
         print(f"Error initializing IntentEngine: {e}")
-        print("Make sure Ollama is running: https://ollama.com/download")
+        print("Make sure GEMINI_API_KEY is set in your environment.")
         return
 
     suite = IntentTestSuite()
@@ -213,3 +213,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

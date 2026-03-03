@@ -1,23 +1,20 @@
-# Core
-python-dotenv==1.0.1
-loguru==0.7.2
-rich==13.7.1
-pydantic==2.8.2
+﻿# Core LLM
+google-generativeai>=0.7.0     # Gemini 2.5 Flash
 
-# Intent engine
-google-generativeai==0.8.4
-sentence-transformers==3.0.1
-pyyaml==6.0.2
+# Schema + validation
+pydantic>=2.8.0
 
-# STT backends
-faster-whisper==1.0.3
-deepgram-sdk==3.7.7
-librosa==0.10.2.post1
-noisereduce==3.0.3
-numpy>=2.0.0
+# Windows execution
+pywinauto>=0.6.8
+pywin32>=306
 
-# Audio / wake word
-sounddevice==0.4.6
-openwakeword==0.6.0
-websockets==12.0
-onnxruntime==1.24.2
+# Browser control
+playwright>=1.46.0
+
+# Memory
+# sqlite3 is built into Python
+
+# Utilities
+python-dotenv>=1.0.1
+loguru>=0.7.2
+rich>=13.7.1
