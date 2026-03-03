@@ -1,157 +1,82 @@
-![ALARA Banner](./alara-banner.jpg)
+<p align="center">
+  <img src="./alara-banner.jpg" alt="ALARA Banner" width="100%" />
+</p>
 
-Ambient Language & Reasoning Assistant for Windows developers.
-ALARA provides a voice-first workflow that can listen, transcribe, classify intent, and execute actions across Windows, terminal, browser, and VS Code integrations.
+# ALARA
 
-## Build Plan Alignment (Weeks 1-6)
+Ambient Language and Reasoning Assistant for Windows development workflows.
 
-This repository was reviewed against `Alara_v1_Build_Plan.docx` for Weeks 1-6.
-The following items are implemented and verified:
+ALARA is a voice-first desktop assistant that captures spoken commands, transcribes speech, classifies intent, and executes actions through local integrations (Windows OS, terminal, browser, and VS Code).
 
-### Weeks 1-2: Foundation
+## Architecture
 
-1. Modular Python project structure:
-- `core/` contains wake detection, recording, transcription, intent parsing, executor, and pipeline orchestration.
-- `integrations/` contains target-specific execution modules.
+ALARA processes commands through the following sequence:
 
-2. Wake-word detection:
-- Primary wake detection path uses OpenWakeWord (`core/wake_word.py`).
-- Automatic fallback path is provided when OpenWakeWord cannot initialize (volume-based trigger).
-
-3. Local transcription with faster-whisper:
-- Local STT is implemented in `core/transcriber.py`.
-- Recorder emits WAV bytes; transcriber converts WAV to `float32` and runs faster-whisper.
-
-4. End-to-end CLI for voice-to-text and pipeline checks:
-- `--test-stt`: audio capture + transcription.
-- `--test-wake-word`: wake detector smoke test.
-- `--test-intent`: intent parsing inspection.
-- `--test-full`: intent parsing + executor dispatch.
-
-### Weeks 3-4: Intent Engine
-
-1. Action schema design:
-- Implemented via `Action` model in `core/intent_engine.py`.
-- Supported action set is explicitly constrained and validated.
-
-2. Prompt-engineered classifier with few-shot guidance:
-- Gemini-first classifier with structured JSON contract.
-- Few-shot examples were added to the system prompt for higher classification consistency.
-
-3. JSON validation and malformed output recovery:
-- Multi-stage JSON extraction and recovery.
-- Retry handling with backoff for transient Ollama failures.
-- Safe fallback to `unknown` with reason when parsing cannot be recovered.
-
-4. Test set of 50 developer commands:
-- Implemented in `tests/test_intent.py`.
-- Category breakdown and accuracy reporting are included.
-
-5. Target accuracy:
-- The benchmark target is 90%+.
-- Current implementation was tuned and validated against the test suite.
-
-### Weeks 5-6: First 2 Integrations
-
-1. Windows OS module:
-- `integrations/windows_os.py` now performs real actions for:
-  `open_app`, `close_app`, `switch_app`, `minimize_window`, `maximize_window`,
-  `close_window`, `take_screenshot`, `open_file`, `open_folder`, `search_files`,
-  `volume_up`, `volume_down`, `volume_mute`, and `lock_screen`.
-
-2. Terminal module:
-- `integrations/terminal.py` now executes real commands.
-- Uses Windows Terminal (`wt`) when available, with PowerShell fallback.
-- Supports optional `cwd` routing for commands that require a specific folder.
-
-3. End-to-end flow coverage:
-- Intent normalization now handles commands like:
-  `open a terminal in my projects folder and run git status`
-  as `run_command` with resolved working directory.
-
-4. Reliability test coverage:
-- Added `tests/test_week56_integrations.py` to validate core Week 5-6 behavior via mocks.
-
-### Overlay UI + WS Bridge
-
-1. WebSocket bridge:
-- `core/ws_server.py` exposes `ws://localhost:8765` for Electron UI communication.
-- Supports text commands, start/stop listening, result/status streaming, and wake broadcasts.
-
-2. Electron overlay:
-- `ui/` contains a Spotlight-style top overlay with global hotkey toggle.
-- UI sends command/listening events to Python and receives state/result updates.
-
-3. Shared backend instances:
-- `--ui` mode in `main.py` starts pipeline + WebSocket server with shared
-  `IntentEngine`, `Executor`, `Transcriber`, and `AudioRecorder`.
-
-## Additional Cleanups Applied During This Review
-
-The following changes were made to close quality gaps and keep the codebase professional:
-
-1. Removed emoji/symbol output from code paths:
-- Replaced symbol-based status output with plain text status labels.
-- Updated test output strings to plain ASCII formatting.
-
-2. Removed stale technical references:
-- Updated comments and docstrings that referenced older architecture assumptions.
-- Ensured pipeline and recorder/transcriber docs reflect the current faster-whisper + Ollama flow.
-
-3. Standardized core modules for clarity:
-- Rewrote key core files with clean, consistent, formal documentation and ASCII-safe text.
-
-## Architecture Overview
-
-ALARA executes commands through the following sequence:
-
-1. Wake detection (`core/wake_word.py`)
+1. Wake-word detection (`core/wake_word.py`)
 2. Audio recording (`core/recorder.py`)
 3. Speech transcription (`core/transcriber.py`)
 4. Intent classification (`core/intent_engine.py`)
 5. Action execution (`core/executor.py`)
 
-## Project Structure
+## Transcription Pipeline
+
+The transcription layer supports multiple runtime strategies:
+
+- `fast` (default): Deepgram first, Whisper fallback.
+- `consensus`: Deepgram and Whisper with agreement scoring.
+- `deepgram_only`: Deepgram only, Whisper fallback on API failure.
+- `whisper_only`: local Whisper-only path.
+
+Audio preprocessing is configurable and can be tuned for latency:
+
+- `ENABLE_AUDIO_PREPROCESSING` (default: `1`)
+- `ENABLE_AUDIO_DENOISE` (default: `0`)
+- `ENABLE_AUDIO_TRIM` (default: `1`)
+
+## Repository Structure
 
 ```text
 alara/
 |-- main.py
 |-- core/
-|   |-- wake_word.py
+|   |-- action_registry.py
+|   |-- assistant.py
+|   |-- audio_preprocessor.py
+|   |-- executor.py
+|   |-- intent_engine.py
+|   |-- normalizer.py
+|   |-- pipeline.py
+|   |-- prompt_builder.py
 |   |-- recorder.py
 |   |-- transcriber.py
-|   |-- intent_engine.py
-|   |-- executor.py
-|   |-- ws_server.py
-|   `-- pipeline.py
+|   |-- wake_word.py
+|   `-- ws_server.py
 |-- integrations/
-|   |-- windows_os.py
-|   |-- terminal.py
 |   |-- browser.py
-|   `-- vscode.py
+|   |-- terminal.py
+|   |-- vscode.py
+|   `-- windows_os.py
 |-- ui/
-|   |-- main.js
-|   |-- preload.js
+|   |-- alara.svg
 |   |-- index.html
-|   `-- package.json
+|   |-- main.js
+|   |-- package.json
+|   `-- preload.js
 |-- tests/
 |   |-- test_intent.py
-|   `-- test_results.json
+|   `-- test_week56_integrations.py
 |-- requirements.txt
 `-- .env.example
 ```
 
-## Setup
+## Prerequisites
 
-### Prerequisites
-
-- Windows 10/11
+- Windows 10 or Windows 11
 - Python 3.11+
-- Node.js 18+ (for Electron UI)
-- Gemini API key
-- Optional NVIDIA GPU for faster transcription
+- Node.js 18+ (for the Electron overlay)
+- API keys for configured providers (Gemini and optional Deepgram)
 
-### Install
+## Installation
 
 ```powershell
 git clone https://github.com/yourname/alara.git
@@ -162,37 +87,44 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Configure
+## Configuration
+
+Create and edit environment settings:
 
 ```powershell
 copy .env.example .env
 notepad .env
 ```
 
-### Gemini API
+Minimum required settings:
 
-```powershell
-notepad .env
-```
-
-Set at least:
 - `GEMINI_API_KEY=...`
-- Optional: `GEMINI_MODEL=gemini-2.5-flash`
 
-## Usage
+Common optional settings:
+
+- `GEMINI_MODEL=gemini-2.5-flash`
+- `DEEPGRAM_API_KEY=...`
+- `DEEPGRAM_MODEL=nova-2`
+- `STT_STRATEGY=fast`
+- `WHISPER_MODEL=small.en`
+- `WHISPER_DEVICE=cpu`
+- `WHISPER_COMPUTE_TYPE=int8`
+
+## Running ALARA
+
+Backend CLI modes:
 
 ```powershell
 .venv\Scripts\activate
-
 python -m alara.main --test-stt
 python -m alara.main --test-wake-word
 python -m alara.main --test-intent
 python -m alara.main --test-full
-python -m alara.main
 python -m alara.main --ui
+python -m alara.main
 ```
 
-Electron UI (new terminal):
+Electron overlay (in a second terminal):
 
 ```powershell
 cd ui
@@ -200,26 +132,32 @@ npm install
 npm start
 ```
 
-## Intent Test Suite
+## Testing
 
-Run the 50-command benchmark:
+Run the Python test suite:
+
+```powershell
+python -m pytest -q
+```
+
+Run the intent benchmark directly:
 
 ```powershell
 python -m tests.test_intent
 ```
 
-Optional Windows encoding-safe one-liner:
+## UI Overlay
 
-```powershell
-$env:PYTHONIOENCODING='utf-8'; .venv\Scripts\python.exe -m tests.test_intent
-```
+The Electron overlay is implemented in `ui/` and communicates with the Python backend over WebSocket (`ws://localhost:8765`).
 
-The suite reports:
-- Overall accuracy
-- Category-level accuracy
-- Exported JSON results (`tests/test_results.json` when run from project root)
+Current overlay features:
 
-## Notes on Scope
+- Global hotkey toggle
+- Text command submission
+- Push-to-listen control
+- Status transitions (`idle`, `listening`, `processing`)
+- Real-time action results
 
-This repository currently covers Weeks 1-6 plus a working Electron overlay + WebSocket bridge.
-Build plan items from Weeks 7-10 (deeper VS Code/browser integrations, memory/context polish, packaging/tray hardening, beta-user loops) remain future work.
+## Scope Status
+
+The repository currently includes a functional implementation for build plan work through Weeks 1-6, with the wake-word pipeline, transcription, intent engine, core integrations, and Electron overlay active.

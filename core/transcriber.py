@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import io
 import os
-import tempfile
 import wave
 from typing import Iterable, Optional, Sequence, Tuple, Union
 
@@ -42,10 +41,22 @@ class Transcriber:
         self.preprocessor = AudioPreprocessor()
         self.recorder = AudioRecorder()
 
-        self.whisper_model_name = os.getenv("WHISPER_MODEL", "large-v3")
+        self.whisper_model_name = os.getenv("WHISPER_MODEL", "small.en")
         self.whisper_device = os.getenv("WHISPER_DEVICE", "cpu")
         self.whisper_compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
         self._whisper_model: WhisperModel | None = None
+
+        self.stt_strategy = os.getenv("STT_STRATEGY", "fast").strip().lower()
+        self.enable_preprocessing = os.getenv("ENABLE_AUDIO_PREPROCESSING", "1").strip() not in {
+            "0",
+            "false",
+            "False",
+        }
+        self.enable_llm_arbitration = os.getenv("ENABLE_STT_LLM_ARBITRATION", "0").strip() in {
+            "1",
+            "true",
+            "True",
+        }
 
         self.gemini_model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self._gemini_model = None
@@ -58,7 +69,8 @@ class Transcriber:
 
         logger.info(
             f"Transcriber initialized | deepgram_model={self.deepgram_model}, "
-            f"whisper_model={self.whisper_model_name}, vocab={len(self.vocabulary)}"
+            f"whisper_model={self.whisper_model_name}, strategy={self.stt_strategy}, "
+            f"preprocess={self.enable_preprocessing}, vocab={len(self.vocabulary)}"
         )
 
     def _build_vocabulary(self, custom_vocabulary: Optional[Sequence[str]]) -> list[str]:
@@ -110,7 +122,7 @@ class Transcriber:
                 compute_type=self.whisper_compute_type,
             )
             logger.info(
-                "Loaded Whisper model: %s (device=%s, compute_type=%s)",
+                "Loaded Whisper model: {} (device={}, compute_type={})",
                 self.whisper_model_name,
                 self.whisper_device,
                 self.whisper_compute_type,
@@ -122,7 +134,7 @@ class Transcriber:
             if "float16" not in msg:
                 raise
             logger.warning(
-                "Whisper model init failed with compute_type=%s on device=%s (%s). "
+                "Whisper model init failed with compute_type={} on device={} ({}). "
                 "Retrying with safe CPU int8 settings.",
                 self.whisper_compute_type,
                 self.whisper_device,
@@ -138,7 +150,7 @@ class Transcriber:
             compute_type=self.whisper_compute_type,
         )
         logger.info(
-            "Loaded Whisper model with fallback settings: %s (device=%s, compute_type=%s)",
+            "Loaded Whisper model with fallback settings: {} (device={}, compute_type={})",
             self.whisper_model_name,
             self.whisper_device,
             self.whisper_compute_type,
@@ -240,17 +252,13 @@ class Transcriber:
 
     def _transcribe_whisper_sync(self, wav_bytes: bytes) -> str:
         model = self._ensure_whisper()
-        tmp_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp.write(wav_bytes)
-                tmp.flush()
-                tmp_path = tmp.name
+            audio, _sample_rate = self._wav_bytes_to_array(wav_bytes)
             segments, _ = model.transcribe(
-                tmp_path,
-                beam_size=5,
-                best_of=5,
-                temperature=[0.0, 0.2, 0.4],
+                audio,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
                 initial_prompt=self._whisper_prompt(),
                 vad_filter=True,
                 condition_on_previous_text=False,
@@ -262,12 +270,6 @@ class Transcriber:
         except Exception as exc:
             logger.warning(f"Whisper transcription failed: {exc}")
             return ""
-        finally:
-            if tmp_path:
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
 
     async def _transcribe_deepgram(self, wav_bytes: bytes) -> str:
         return await asyncio.to_thread(self._transcribe_deepgram_sync, wav_bytes)
@@ -318,9 +320,34 @@ class Transcriber:
         if score >= 85:
             return deepgram_text, 0.95
         if 60 <= score <= 84:
-            chosen = await asyncio.to_thread(self._llm_arbitrate, deepgram_text, whisper_text)
+            if self.enable_llm_arbitration:
+                chosen = await asyncio.to_thread(self._llm_arbitrate, deepgram_text, whisper_text)
+            else:
+                chosen = deepgram_text
             return chosen, 0.75
         return deepgram_text, 0.40
+
+    def _fast_transcribe(self, wav_bytes: bytes) -> tuple[str, float]:
+        strategy = self.stt_strategy
+
+        if strategy == "whisper_only":
+            whisper_text = self._transcribe_whisper_sync(wav_bytes)
+            return whisper_text, (0.55 if whisper_text else 0.0)
+
+        if strategy == "deepgram_only":
+            deepgram_text = self._transcribe_deepgram_sync(wav_bytes)
+            if deepgram_text:
+                return deepgram_text, 0.8
+            whisper_text = self._transcribe_whisper_sync(wav_bytes)
+            return whisper_text, (0.55 if whisper_text else 0.0)
+
+        # Fast default: Deepgram first, Whisper fallback only when needed.
+        if self.deepgram_client is not None:
+            deepgram_text = self._transcribe_deepgram_sync(wav_bytes)
+            if deepgram_text:
+                return deepgram_text, 0.8
+        whisper_text = self._transcribe_whisper_sync(wav_bytes)
+        return whisper_text, (0.55 if whisper_text else 0.0)
 
     def _preprocess_wav_bytes(self, audio_bytes: bytes) -> bytes:
         audio, sample_rate = self._wav_bytes_to_array(audio_bytes)
@@ -331,8 +358,14 @@ class Transcriber:
         """Transcribe in-memory WAV bytes after preprocessing."""
         if not audio_bytes:
             return "", 0.0
-        processed = self._preprocess_wav_bytes(audio_bytes)
-        transcript, confidence = asyncio.run(self._consensus_transcribe(processed))
+        processed = (
+            self._preprocess_wav_bytes(audio_bytes) if self.enable_preprocessing else audio_bytes
+        )
+
+        if self.stt_strategy == "consensus":
+            transcript, confidence = asyncio.run(self._consensus_transcribe(processed))
+        else:
+            transcript, confidence = self._fast_transcribe(processed)
         return transcript.strip(), confidence
 
     def transcribe_file(self, path: str) -> tuple[str, float]:
@@ -340,7 +373,10 @@ class Transcriber:
         audio, sample_rate = librosa.load(path, sr=None, mono=True)
         cleaned = self.preprocessor.process(audio, sample_rate)
         wav_bytes = self._array_to_wav_bytes(cleaned, sample_rate)
-        transcript, confidence = asyncio.run(self._consensus_transcribe(wav_bytes))
+        if self.stt_strategy == "consensus":
+            transcript, confidence = asyncio.run(self._consensus_transcribe(wav_bytes))
+        else:
+            transcript, confidence = self._fast_transcribe(wav_bytes)
         return transcript.strip(), confidence
 
     def record_and_transcribe(self, duration: Optional[float] = None) -> tuple[str, float]:
@@ -383,4 +419,3 @@ class Transcriber:
             utterance_end_ms=1500,
             interim_results=True,
         )
-

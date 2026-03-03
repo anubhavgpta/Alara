@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import numpy as np
 from loguru import logger
+import os
 
-import librosa
-import noisereduce as nr
+try:
+    import librosa
+except Exception:
+    librosa = None
+
+try:
+    import noisereduce as nr
+except Exception:
+    nr = None
 
 
 class AudioPreprocessor:
@@ -15,6 +23,12 @@ class AudioPreprocessor:
     def __init__(self, target_peak: float = 0.95, trim_top_db: int = 20):
         self.target_peak = float(target_peak)
         self.trim_top_db = int(trim_top_db)
+        self.enable_noise_reduction = os.getenv("ENABLE_AUDIO_DENOISE", "0").strip() in {
+            "1",
+            "true",
+            "True",
+        }
+        self.enable_trim = os.getenv("ENABLE_AUDIO_TRIM", "1").strip() not in {"0", "false", "False"}
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
         """Preprocess raw audio array.
@@ -29,9 +43,11 @@ class AudioPreprocessor:
 
         try:
             cleaned = self._to_mono_float32(audio)
-            cleaned = self._reduce_noise(cleaned, sample_rate)
+            if self.enable_noise_reduction:
+                cleaned = self._reduce_noise(cleaned, sample_rate)
             cleaned = self._normalize(cleaned)
-            cleaned = self._trim_silence(cleaned)
+            if self.enable_trim:
+                cleaned = self._trim_silence(cleaned)
             return cleaned.astype(np.float32)
         except Exception as exc:
             logger.warning(f"Audio preprocessing failed, returning raw audio: {exc}")
@@ -51,6 +67,8 @@ class AudioPreprocessor:
         return arr
 
     def _reduce_noise(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        if nr is None:
+            return audio
         noise_samples = max(1, int(0.5 * sample_rate))
         noise_clip = audio[:noise_samples] if len(audio) >= noise_samples else audio
         return nr.reduce_noise(y=audio, y_noise=noise_clip, sr=sample_rate)
@@ -62,6 +80,7 @@ class AudioPreprocessor:
         return audio * (self.target_peak / peak)
 
     def _trim_silence(self, audio: np.ndarray) -> np.ndarray:
+        if librosa is None:
+            return audio
         trimmed, _ = librosa.effects.trim(audio, top_db=self.trim_top_db)
         return trimmed if len(trimmed) else audio
-

@@ -20,11 +20,16 @@ function createWindow() {
     x,
     y,
     frame: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: false,
+    autoHideMenuBar: true,
+    thickFrame: false,
     transparent: true,
     resizable: false,
     movable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    backgroundColor: '#00000000',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -34,6 +39,8 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'index.html'));
+  win.setMenuBarVisibility(false);
+  win.removeMenu();
 }
 
 function sendToRenderer(message) {
