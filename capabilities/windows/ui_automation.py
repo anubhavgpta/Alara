@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from alara.capabilities.base import BaseCapability
-from alara.schemas.task_graph import Step, StepResult
+from typing import Any
+
+from alara.capabilities.base import BaseCapability, CapabilityResult
 
 
 class WindowsUIAutomationCapability(BaseCapability):
     """Execute UI automation steps when higher-level capabilities are unavailable."""
 
-    def execute(self, step: Step) -> StepResult:
-        """Execute a pywinauto-based UI automation step."""
-        # TODO: Implement resilient UI automation with retry and focus handling.
-        pass
+    def execute(self, operation: str, params: dict[str, Any]) -> CapabilityResult:
+        return CapabilityResult.fail(
+            f"Windows UI automation not implemented for operation: {operation}"
+        )

@@ -7,6 +7,7 @@ pydantic>=2.8.0
 # Windows execution
 pywinauto>=0.6.8
 pywin32>=306
+psutil>=6.0.0
 
 # Browser control
 playwright>=1.46.0

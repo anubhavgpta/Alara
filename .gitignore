@@ -72,6 +72,9 @@ Thumbs.db
 htmlcov/
 test_results.json
 tests/test_results.json
+tests/__pycache__/
+tests/.pytest_cache/
+tests/.coverage
 
 # Electron UI
 ui/node_modules/

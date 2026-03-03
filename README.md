@@ -5,28 +5,33 @@
 # ALARA
 **Ambient Language & Reasoning Assistant**
 
-ALARA is an agentic desktop AI platform for Windows that takes a natural language goal and decomposes it into an executable TaskGraph.
+ALARA is an agentic desktop AI platform for Windows that transforms natural language goals into executable tasks with comprehensive verification and adaptive error recovery.
 
 Version: 0.2.0  |  Platform: Windows 10/11  |  Python: 3.11+
 
 ## Overview
 
-ALARA is an autonomous planning engine for desktop tasks. It is not a voice assistant, macro recorder, or conversational chatbot. A user provides a goal in natural language, and ALARA decomposes it into a structured execution plan with typed steps, dependencies, verification methods, and fallback strategies.
+ALARA is an autonomous planning and execution engine for desktop tasks. It is not a voice assistant, macro recorder, or conversational chatbot. A user provides a goal in natural language, and ALARA decomposes it into a structured execution plan with typed steps, dependencies, verification methods, and fallback strategies, then executes the plan with real-world verification and adaptive error recovery.
 
-Current build focus: planning stack foundation (`GoalUnderstander` + `Planner` + `TaskGraph` rendering). Execution routing/orchestration is scaffolded and will be wired in subsequent builds.
+Current build: Complete execution engine with planning, routing, verification, and reflection capabilities fully operational.
 
-## Capabilities
+## Architecture
 
-| Category | What it does |
-|---|---|
-| Filesystem Operations | Create, read, write, move, copy, and delete files and directories. Search by name or pattern. Operations are verified after execution. |
-| CLI Execution | Run shell commands, scripts, and package managers in any working directory. Capture exit codes and use them as verification signals. |
-| Project Scaffolding | Set up development project structures, including virtual environments, dependency installation, git initialization, and config file generation. |
-| File Organization | Batch rename, move, sort, and clean files across directories using rules derived from the goal description. |
-| App Control | Launch, focus, and close Windows applications by name, including argument and working-directory passing for supported apps. |
-| System Queries | Read environment variables, list running processes, check disk usage, and retrieve host system information. |
+ALARA implements a comprehensive orchestration loop consisting of five core components:
 
-## How It Works
+### Core Components
+
+**Goal Understander:** Parses raw input into a structured `GoalContext` that captures normalized intent, operational scope, explicit constraints, inferred working directory, and estimated complexity.
+
+**Planner:** Sends `GoalContext` to Gemini 2.5 Flash using a constrained planning prompt and receives a typed `TaskGraph` of ordered atomic steps. Each step includes operation, parameters, expected outcome, verification method, dependencies, and fallback strategy.
+
+**Execution Router:** Selects the best execution layer for each step in strict priority order: native OS API, application adapter, CLI execution, then UI automation as a last resort.
+
+**Verifier:** Validates real-world state after each step against expected outcomes using programmatic checks such as file existence, process state, exit code status, port availability, and output inspection.
+
+**Reflector:** On failed verification, sends full execution context to Gemini, including original goal, full plan, prior step results, and failure details. Gemini returns corrected actions or alternative paths, and ALARA retries within configured limits.
+
+### Execution Flow
 
 ```text
 User Input
@@ -42,29 +47,111 @@ Planner ──────────► decomposes goal into typed, ordered Ta
 │           Orchestration Loop            │
 │                                         │
 │   Execution Router                      │
-│   └─► OS API → App Adapter → CLI →     │
-│        UI Automation                    │
+│   └─► Filesystem → CLI → System →      │
+│        App Adapter → UI Automation      │
 │              │                          │
 │   Verifier ◄─┘                          │
 │   └─► confirmed / failed                │
 │              │                          │
 │   Reflector (on failure)                │
-│   └─► replan → retry                    │
+│   └─► replan → retry → skip → escalate  │
 └─────────────────────────────────────────┘
     │
     ▼
 Result
 ```
 
-**Goal Understander:** Parses raw input into a structured `GoalContext` that captures normalized intent, operational scope, explicit constraints, inferred working directory, and estimated complexity.
+## Capabilities
 
-**Planner:** Sends `GoalContext` to Gemini 2.5 Flash using a constrained planning prompt and receives a typed `TaskGraph` of ordered atomic steps. Each step includes operation, parameters, expected outcome, verification method, dependencies, and fallback strategy.
+### Filesystem Operations
+- **Directory Management:** Create, delete, move, and list directories with parent directory auto-creation
+- **File Operations:** Create, read, write, copy, move, and delete files with content verification
+- **Path Resolution:** Support for Windows environment variables (`$env:USERPROFILE`, `$HOME`) and user home expansion (`~`)
+- **Search & Discovery:** Recursive file pattern matching and absolute path enumeration
+- **Verification:** Real-world state checking including path existence, content validation, and directory non-emptiness
 
-**Execution Router:** Selects the best execution layer for each step in strict priority order: native OS API, application adapter, CLI execution, then UI automation as a last resort.
+### Command Line Interface
+- **Command Execution:** Run shell commands with configurable timeouts and working directories
+- **Output Capture:** Comprehensive stdout/stderr capture with return code tracking
+- **Environment Control:** Working directory resolution and validation before execution
+- **Error Handling:** Graceful timeout handling and exception capture with detailed metadata
 
-**Verifier:** Validates real-world state after each step against expected outcomes using programmatic checks such as file existence, process state, exit code status, port availability, and output inspection.
+### System Integration
+- **Environment Variables:** Read and set system and user environment variables with Windows-specific handling
+- **Process Management:** Check running processes via Windows tasklist with psutil fallback
+- **System Queries:** Retrieve system information and validate system state
 
-**Reflector:** On failed verification, sends full execution context to Gemini, including original goal, full plan, prior step results, and failure details. Gemini returns corrected actions or alternative paths, and ALARA retries within configured limits.
+### Verification & Validation
+- **Path Verification:** File and directory existence checking with resolved path validation
+- **Content Verification:** File content inspection for expected text and patterns
+- **Process Verification:** Running process validation with fresh checking capability
+- **Network Verification:** Port availability checking with host connectivity validation
+- **Output Verification:** Command output inspection for expected content and patterns
+- **Exit Code Verification:** Process exit code validation for success/failure determination
+
+### Adaptive Error Recovery
+- **Intelligent Reflection:** LLM-powered failure analysis with context-aware alternative generation
+- **Retry Logic:** Configurable retry attempts with modified step parameters and approaches
+- **Fallback Strategies:** Optional step skipping and escalation to human intervention
+- **Context Preservation:** Full execution context maintenance for reflection decisions
+
+## Implementation Details
+
+### Capability Layer Architecture
+
+All capabilities inherit from a standardized `BaseCapability` interface:
+
+```python
+class BaseCapability(ABC):
+    @abstractmethod
+    def execute(self, operation: str, params: dict) -> CapabilityResult:
+        """Execute one operation with operation-specific params."""
+    
+    def supports(self, operation: str) -> bool:
+        """Return whether this capability handles the operation."""
+        return False
+```
+
+### Result Standardization
+
+All operations return structured `CapabilityResult` objects:
+
+```python
+@dataclass
+class CapabilityResult:
+    success: bool
+    output: str | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+### Path Resolution
+
+Comprehensive Windows path handling with support for:
+- User home expansion (`~`)
+- Environment variable substitution (`$HOME`, `$env:USERPROFILE`)
+- Absolute and relative path resolution
+- Cross-platform compatibility using `pathlib.Path`
+
+### Verification Methods
+
+The verifier supports multiple verification strategies:
+- `check_path_exists`: Validates file/directory existence
+- `check_file_contains`: Inspects file content for expected text
+- `check_exit_code_zero`: Validates successful command execution
+- `check_process_running`: Confirms process availability
+- `check_port_open`: Validates network port accessibility
+- `check_output_contains`: Inspects command output
+- `check_directory_not_empty`: Validates directory contents
+- `none`: Bypasses verification for non-critical steps
+
+### Reflection & Recovery
+
+The reflector implements sophisticated error recovery:
+- **Context Analysis**: Full execution context including goal, plan, and failure details
+- **Alternative Generation**: LLM-powered generation of modified approaches
+- **Action Decision**: Intelligent selection between retry, skip, or escalate actions
+- **Step Modification**: Dynamic parameter and approach adjustment for retries
 
 ## Getting Started
 
@@ -103,7 +190,7 @@ DB_PATH=alara.db
 
 ## Usage
 
-### Interactive Mode (Planner Preview)
+### Interactive Mode
 
 ```powershell
 # If your current directory is the parent repo directory:
@@ -113,7 +200,7 @@ python -m alara.main
 python main.py
 ```
 
-ALARA starts a prompt loop. Enter a natural language goal and press Enter. ALARA runs Goal Understanding + Planning and prints the TaskGraph in a Rich table.
+ALARA starts a prompt loop. Enter a natural language goal and press Enter. ALARA runs the complete planning and execution pipeline with real-time progress feedback.
 
 ### Single Goal Mode
 
@@ -121,7 +208,7 @@ ALARA starts a prompt loop. Enter a natural language goal and press Enter. ALARA
 python -m alara.main --goal "create a Python project called myapp"
 ```
 
-This mode plans one goal non-interactively and exits.
+This mode plans and executes one goal non-interactively with auto-confirmation.
 
 ### Debug Mode
 
@@ -129,7 +216,7 @@ This mode plans one goal non-interactively and exits.
 python -m alara.main --debug
 ```
 
-Debug mode prints parsed `GoalContext`, raw Gemini planner response, and additional TaskGraph metadata.
+Debug mode prints parsed `GoalContext`, raw Gemini planner response, execution logs, and detailed verification results.
 
 ### Example Goals
 
@@ -141,8 +228,12 @@ Debug mode prints parsed `GoalContext`, raw Gemini planner response, and additio
 | "Rename all images in Desktop/photos to include today's date" | Enumerates image files, generates date-prefixed names, renames files, and verifies results. |
 | "Find the 10 largest files in Documents" | Scans recursively, sorts by file size, and prints a formatted top-10 report. |
 | "Install Python dependencies from requirements.txt" | Detects active virtual environment, runs `pip install -r requirements.txt`, and validates installed packages. |
+| "Create a folder called test on my desktop" | Creates the specified directory with path resolution and existence verification. |
+| "Create a file called hello.txt on my desktop with the text 'Hello World'" | Creates the file with specified content and verifies file creation and content. |
 
-## Planner Validation Tests
+## Testing
+
+### Planner Validation Tests
 
 Run planner integration checks over 8 benchmark goals:
 
@@ -159,6 +250,21 @@ Notes:
 - The script exits with code `1` if any goal fails validation.
 - It validates step schema integrity, dependencies, verification methods, path normalization, and timestamp format.
 
+### End-to-End Execution Tests
+
+The execution engine has been validated with comprehensive test scenarios:
+
+```powershell
+# Test filesystem operations
+python -m alara.main --goal "create a folder called test on my desktop"
+
+# Test file creation with content
+python -m alara.main --goal "create a file called hello.txt on my desktop with the text 'Hello World'"
+
+# Test directory listing
+python -m alara.main --debug --goal "list the contents of my desktop"
+```
+
 ## Project Structure
 
 ```text
@@ -167,15 +273,16 @@ alara/
 ├── .gitignore                    # Git ignore rules
 ├── __init__.py                   # Package marker
 ├── alara-banner.jpg              # README banner image
-├── main.py                       # CLI entrypoint and prompt loop
+├── main.py                       # CLI entrypoint and orchestration loop
 ├── README.md                     # Product documentation
 ├── requirements.txt              # Python dependencies
 ├── test_results.json             # Test output artifact
 ├── capabilities/
 │   ├── __init__.py               # Capabilities package marker
-│   ├── base.py                   # Capability base contract
-│   ├── cli.py                    # CLI execution capability
-│   ├── filesystem.py             # Filesystem execution capability
+│   ├── base.py                   # Capability base contract and result types
+│   ├── cli.py                    # CLI execution capability with subprocess handling
+│   ├── filesystem.py             # Filesystem execution capability with pathlib
+│   ├── system.py                 # System operations capability
 │   └── windows/
 │       ├── __init__.py           # Windows capabilities marker
 │       ├── app_adapters.py       # App adapter capability
@@ -183,50 +290,20 @@ alara/
 │       └── ui_automation.py      # UI automation fallback capability
 ├── core/
 │   ├── __init__.py               # Core package marker
-│   ├── action_registry.py        # Action definitions
-│   ├── assistant.py              # Legacy assistant compatibility facade
-│   ├── audio_preprocessor.py     # Audio preprocessing utilities
-│   ├── execution_router.py       # Step-to-capability routing
-│   ├── executor.py               # Action executor implementation
+│   ├── execution_router.py       # Step-to-capability routing logic
 │   ├── goal_understander.py      # Raw goal to GoalContext extraction
-│   ├── intent_engine.py          # Intent parsing engine
-│   ├── normalizer.py             # Text normalization utilities
-│   ├── orchestrator.py           # Top-level orchestration coordinator
-│   ├── pipeline.py               # Legacy pipeline compatibility shim
+│   ├── orchestrator.py           # Complete orchestration loop implementation
 │   ├── planner.py                # GoalContext to TaskGraph planning
-│   ├── prompt_builder.py         # LLM prompt composition logic
-│   ├── reflector.py              # Failure reflection and replan hook
-│   ├── registry_loader.py        # Registry loading utilities
-│   ├── verifier.py               # Step outcome verification
-│   ├── voice_profile.py          # Voice profile data model
-│   └── ws_server.py              # WebSocket bridge placeholder
-├── integrations/
-│   ├── __init__.py               # Integrations package marker
-│   ├── browser.py                # Browser integration handlers
-│   ├── terminal.py               # Terminal integration handlers
-│   ├── vscode.py                 # VS Code integration handlers
-│   └── windows_os.py             # Windows OS integration handlers
-├── memory/
-│   ├── __init__.py               # Memory package marker
-│   ├── preferences.py            # Preferences store abstraction
-│   ├── session.py                # Session memory abstraction
-│   └── skills.py                 # Skill-pattern store abstraction
+│   ├── reflector.py              # Failure reflection and adaptive recovery
+│   └── verifier.py               # Step outcome verification with multiple methods
 ├── schemas/
 │   ├── __init__.py               # Schemas package marker
 │   ├── goal.py                   # GoalContext schema
-│   └── task_graph.py             # TaskGraph and step schemas
+│   └── task_graph.py             # TaskGraph and step schemas with validation
 ├── tests/
 │   ├── __init__.py               # Test package marker
-│   ├── test_intent.py            # Intent engine benchmark tests
 │   ├── test_planner.py           # Planner integration validation script
 │   └── test_week56_integrations.py # Integration behavior tests
-├── ui/
-│   ├── alara.svg                 # Overlay brand asset
-│   ├── index.html                # Overlay renderer UI
-│   ├── main.js                   # Electron main process
-│   ├── package-lock.json         # NPM lockfile
-│   ├── package.json              # UI package manifest
-│   └── preload.js                # Renderer IPC bridge
 └── utils/
     ├── __init__.py               # Utilities package marker
     └── platform.py               # Platform/path helpers
@@ -236,12 +313,22 @@ alara/
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
-| GEMINI_API_KEY | — | Yes | Gemini 2.5 Flash API key. |
-| MAX_RETRIES | 3 | No | Maximum retry attempts per step. |
+| GEMINI_API_KEY | — | Yes | Gemini 2.5 Flash API key for planning and reflection. |
+| MAX_RETRIES | 3 | No | Maximum retry attempts per step before escalation. |
 | STEP_TIMEOUT_S | 30 | No | Timeout in seconds per step execution. |
-| DEBUG | false | No | Enables verbose logging output. |
-| LOG_FILE | alara.log | No | Log file path. |
+| DEBUG | false | No | Enables verbose logging output and execution details. |
+| LOG_FILE | alara.log | No | Log file path for persistent logging. |
 | DB_PATH | alara.db | No | SQLite memory database path. |
+
+## Logging Standards
+
+ALARA implements comprehensive logging across all components:
+
+- **Orchestrator:** INFO for step lifecycle events, WARNING for failures, ERROR for unrecoverable errors
+- **Router:** WARNING for capability fallbacks, ERROR for routing exceptions
+- **Verifier:** DEBUG for verification details, WARNING for unknown methods
+- **Reflector:** INFO for reflection decisions, WARNING for parse failures, ERROR for API failures
+- **Capabilities:** DEBUG for operation details, WARNING for expected failures, ERROR for exceptions
 
 ## Overlay UI
 

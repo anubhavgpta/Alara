@@ -2,13 +2,69 @@
 
 from __future__ import annotations
 
-from alara.schemas.task_graph import Step, StepResult
+from loguru import logger
+
+from alara.capabilities.base import BaseCapability, CapabilityResult
+from alara.capabilities.cli import CLICapability
+from alara.capabilities.filesystem import FilesystemCapability
+from alara.capabilities.system import SystemCapability
+from alara.schemas.task_graph import Step, StepType
 
 
 class ExecutionRouter:
     """Route plan steps to the best available capability implementation."""
 
-    def execute_step(self, step: Step) -> StepResult:
+    def __init__(self) -> None:
+        self.filesystem = FilesystemCapability()
+        self.cli = CLICapability()
+        self.system = SystemCapability()
+
+    def route(self, step: Step) -> CapabilityResult:
         """Execute a single step using the capability hierarchy."""
-        # TODO: Implement capability routing and execution.
-        pass
+        logger.debug("Routing step {} ({}) to capability", step.id, step.operation)
+        
+        try:
+            # Route based on step_type with exact priority order
+            if step.step_type == StepType.FILESYSTEM:
+                if self.filesystem.supports(step.operation):
+                    return self.filesystem.execute(step.operation, step.params)
+                else:
+                    logger.warning(
+                        "Filesystem capability does not support operation '{}', falling back to CLI",
+                        step.operation
+                    )
+                    return self.cli.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.CLI:
+                return self.cli.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.SYSTEM:
+                return self.system.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.APP_ADAPTER:
+                logger.warning(
+                    "App adapter not yet implemented, falling back to CLI for operation '{}'",
+                    step.operation
+                )
+                return self.cli.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.UI_AUTOMATION:
+                logger.warning(
+                    "UI automation not yet implemented, falling back to CLI for operation '{}'",
+                    step.operation
+                )
+                return self.cli.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.VISION:
+                logger.warning("Vision not yet implemented")
+                return CapabilityResult.fail(
+                    "Vision capability not available in this version"
+                )
+
+            else:
+                logger.error("Unknown step type: {}", step.step_type)
+                return CapabilityResult.fail(f"Unknown step type: {step.step_type}")
+
+        except Exception as exc:
+            logger.error("Routing exception for step {}: {}", step.id, exc)
+            return CapabilityResult.fail(error=str(exc))

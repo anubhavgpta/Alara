@@ -2,14 +2,102 @@
 
 from __future__ import annotations
 
-from alara.capabilities.base import BaseCapability
-from alara.schemas.task_graph import Step, StepResult
+import os
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+
+from alara.capabilities.base import BaseCapability, CapabilityResult
 
 
 class CLICapability(BaseCapability):
-    """Execute command-line steps through subprocess orchestration."""
+    """Execute command-line operations through subprocess orchestration."""
 
-    def execute(self, step: Step) -> StepResult:
-        """Execute a CLI step and capture process results."""
-        # TODO: Implement subprocess execution, timeout, and output capture.
-        pass
+    def __init__(self) -> None:
+        timeout_value = os.getenv("STEP_TIMEOUT_S", "30")
+        try:
+            self.default_timeout_s = int(timeout_value)
+        except ValueError:
+            self.default_timeout_s = 30
+
+    def execute(self, operation: str, params: dict[str, Any]) -> CapabilityResult:
+        logger.debug("CLI operation requested: {} | params={}", operation, params)
+        if not self.supports(operation):
+            return CapabilityResult.fail(f"Unsupported CLI operation: {operation}")
+        if operation != "run_command":
+            return CapabilityResult.fail(f"Unhandled CLI operation: {operation}")
+
+        try:
+            command = str(params.get("command", "")).strip()
+            if not command:
+                return CapabilityResult.fail("Missing required parameter: command")
+
+            timeout_s = params.get("timeout_s", self.default_timeout_s)
+            if timeout_s is None:
+                timeout_s = self.default_timeout_s
+            timeout_s = int(timeout_s)
+
+            working_dir_raw = params.get("working_dir")
+            if working_dir_raw is None:
+                resolved_working_dir = Path.cwd()
+            else:
+                resolved_working_dir = self._resolve(str(working_dir_raw))
+            if not resolved_working_dir.exists():
+                return CapabilityResult.fail(
+                    f"Working directory does not exist: {working_dir_raw or resolved_working_dir}"
+                )
+
+            logger.debug(
+                "Executing command: {} | cwd={} | timeout_s={}",
+                command,
+                resolved_working_dir,
+                timeout_s,
+            )
+
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=str(resolved_working_dir),
+                timeout=timeout_s,
+            )
+
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+            output = stdout if stdout.strip() else (stderr if stderr.strip() else "(no output)")
+            metadata = {
+                "returncode": result.returncode,
+                "stdout": stdout,
+                "stderr": stderr,
+            }
+
+            if result.returncode == 0:
+                return CapabilityResult.ok(output=output, metadata=metadata)
+
+            logger.warning(
+                "Command returned non-zero exit code {}: {}",
+                result.returncode,
+                command,
+            )
+            combined = "\n".join(part for part in [stdout.strip(), stderr.strip()] if part)
+            return CapabilityResult.fail(
+                error=combined or output,
+                metadata=metadata,
+            )
+        except subprocess.TimeoutExpired:
+            return CapabilityResult.fail(error=f"Command timed out after {timeout_s}s")
+        except Exception as exc:
+            logger.error("CLI execution exception: {}", exc)
+            return CapabilityResult.fail(error=str(exc))
+
+    def supports(self, operation: str) -> bool:
+        return operation == "run_command"
+
+    def _resolve(self, path: str) -> Path:
+        value = str(path or "")
+        home = str(Path.home())
+        value = value.replace("$env:USERPROFILE", home).replace("$HOME", home)
+        return Path(value).expanduser()

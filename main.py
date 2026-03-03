@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from typing import Optional
 
@@ -15,6 +16,7 @@ from rich.table import Table
 from rich.text import Text
 
 from alara.core.goal_understander import GoalUnderstander
+from alara.core.orchestrator import Orchestrator
 from alara.core.planner import Planner, PlanningError
 from alara.schemas.goal import GoalContext
 from alara.schemas.task_graph import StepStatus, TaskGraph
@@ -76,11 +78,32 @@ def _render_task_graph(task_graph: TaskGraph) -> None:
     console.print(table)
 
 
+def _print_progress(step, step_result) -> None:
+    """Print progress for each completed step."""
+    if step_result.success:
+        console.print(
+            f"[PASS] Step {step.id} [{step.step_type.value}] {step.operation} — {step.description[:50]}",
+            style="green"
+        )
+    elif step.status == StepStatus.SKIPPED:
+        console.print(
+            f"[SKIP] Step {step.id} [{step.step_type.value}] {step.operation} — {step.description[:50]} (skipped)",
+            style="yellow"
+        )
+    else:
+        console.print(
+            f"[FAIL] Step {step.id} [{step.step_type.value}] {step.operation} — {step.description[:50]}",
+            style="red"
+        )
+
+
 def _run_plan(
     raw_input: str,
     understander: GoalUnderstander,
     planner: Planner,
+    orchestrator: Orchestrator,
     debug: bool,
+    auto_confirm: bool = False,
 ) -> None:
     goal_context = understander.understand(raw_input)
     if debug:
@@ -98,7 +121,39 @@ def _run_plan(
             len(task_graph.steps),
         )
     )
-    console.print("[dim italic]Planner ready. Orchestrator coming in next build.[/dim italic]")
+    
+    console.print("─" * 80)
+    
+    # Ask for confirmation unless auto-confirm is enabled
+    if not auto_confirm:
+        console.print("Execute this plan? [y/n]: ", end="")
+        confirm = input().strip().lower()
+        if confirm != "y":
+            console.print("Plan cancelled.", style="dim")
+            return
+
+    console.print("[dim]Executing...[/dim]")
+    
+    # Run the orchestrator
+    result = orchestrator.run(task_graph, progress_callback=_print_progress)
+    
+    # Print final result
+    if result.success:
+        console.print(
+            f"[PASS] Task complete — {result.steps_completed}/{result.total_steps} steps",
+            style="green"
+        )
+    else:
+        console.print(
+            f"[FAIL] Task failed — {result.steps_completed}/{result.total_steps} steps completed",
+            style="red"
+        )
+        console.print(result.message, style="red")
+    
+    # Print debug info if requested
+    if debug and result.execution_log:
+        console.print("\n[bold bright_magenta]Execution Log:[/bold bright_magenta]")
+        console.print(Syntax(json.dumps(result.execution_log, indent=2), "json", theme="monokai", line_numbers=False))
 
     if debug:
         if planner.last_raw_response:
@@ -112,6 +167,7 @@ def _run_plan(
 def _run_interactive(
     understander: GoalUnderstander,
     planner: Planner,
+    orchestrator: Orchestrator,
     debug: bool,
 ) -> None:
     console.print("Alara is ready. Describe what you want to accomplish.")
@@ -130,7 +186,7 @@ def _run_interactive(
             break
 
         try:
-            _run_plan(raw_input, understander, planner, debug)
+            _run_plan(raw_input, understander, planner, orchestrator, debug)
         except PlanningError as exc:
             console.print(f"[red]Planning failed: {exc}[/red]")
 
@@ -148,19 +204,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     understander = GoalUnderstander()
     try:
         planner = Planner()
+        orchestrator = Orchestrator()
     except EnvironmentError as exc:
         console.print(f"[red]{exc}[/red]")
         return 1
 
     if args.goal:
         try:
-            _run_plan(args.goal, understander, planner, args.debug)
+            _run_plan(args.goal, understander, planner, orchestrator, args.debug, auto_confirm=True)
             return 0
         except PlanningError as exc:
             console.print(f"[red]Planning failed: {exc}[/red]")
             return 1
 
-    _run_interactive(understander, planner, args.debug)
+    _run_interactive(understander, planner, orchestrator, args.debug)
     return 0
 
 

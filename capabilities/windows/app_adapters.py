@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from alara.capabilities.base import BaseCapability
-from alara.schemas.task_graph import Step, StepResult
+from typing import Any
+
+from alara.capabilities.base import BaseCapability, CapabilityResult
 
 
 class WindowsAppAdaptersCapability(BaseCapability):
     """Execute app-adapter steps via COM/CDP/CLI wrappers."""
 
-    def execute(self, step: Step) -> StepResult:
-        """Execute a Windows app adapter step."""
-        # TODO: Implement adapter registry and per-app execution backends.
-        pass
+    def execute(self, operation: str, params: dict[str, Any]) -> CapabilityResult:
+        return CapabilityResult.fail(
+            f"Windows app adapter not implemented for operation: {operation}"
+        )

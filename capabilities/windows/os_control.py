@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from alara.capabilities.base import BaseCapability
-from alara.schemas.task_graph import Step, StepResult
+from typing import Any
+
+from alara.capabilities.base import BaseCapability, CapabilityResult
 
 
 class WindowsOSControlCapability(BaseCapability):
     """Perform native Windows control operations."""
 
-    def execute(self, step: Step) -> StepResult:
-        """Execute a Windows OS control step."""
-        # TODO: Implement Windows app/window/system control operations.
-        pass
+    def execute(self, operation: str, params: dict[str, Any]) -> CapabilityResult:
+        return CapabilityResult.fail(
+            f"Windows OS control not implemented for operation: {operation}"
+        )
