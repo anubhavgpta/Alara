@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "alara-ui",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "ALARA Electron overlay UI",
+  "description": "ALARA — Agentic Desktop AI Platform overlay UI",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

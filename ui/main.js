@@ -10,9 +10,9 @@ let reconnectScheduled = false;
 function createWindow() {
   const display = screen.getPrimaryDisplay();
   const width = 700;
-  const height = 60;
+  const height = 72;
   const x = Math.round((display.workArea.width - width) / 2 + display.workArea.x);
-  const y = display.workArea.y + 40;
+  const y = display.workArea.y + 48;
 
   win = new BrowserWindow({
     width,
@@ -96,10 +96,6 @@ function connectBackend() {
   socket.onmessage = (event) => {
     try {
       const payload = JSON.parse(event.data);
-      if (payload.type === 'wake') {
-        showOverlay();
-        sendToRenderer({ type: 'state', state: 'listening' });
-      }
       sendToRenderer(payload);
     } catch (err) {
       console.error('Invalid backend message:', err);
