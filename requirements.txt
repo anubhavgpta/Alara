@@ -14,6 +14,7 @@ playwright>=1.46.0
 
 # Memory
 # sqlite3 is built into Python
+websockets>=12.0
 
 # Utilities
 python-dotenv>=1.0.1

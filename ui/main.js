@@ -162,6 +162,12 @@ app.whenReady().then(() => {
     sendToBackend(message);
   });
 
+  ipcMain.on('alara:resize', (_event, height) => {
+    if (win && !win.isDestroyed()) {
+      win.setSize(700, Math.max(72, Math.min(600, height)));
+    }
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

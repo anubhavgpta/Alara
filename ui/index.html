@@ -3,8 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ALARA</title>
+  <title></title>
   <style>
+    @font-face {
+      font-family: 'IRANYekan';
+      src: url('../ui/IRANYekan.woff2') format('woff2'),
+           url('../ui/IRANYekan.woff') format('woff'),
+           url('../ui/IRANYekan.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
@@ -49,20 +58,19 @@
       white-space: nowrap;
     }
 
-    .brand-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #9B59FF;
-      box-shadow: 0 0 8px #9B59FF;
+    .brand-logo {
+      width: 20px;
+      height: 20px;
       flex-shrink: 0;
+      display: block;
     }
 
     .brand-text {
-      font-size: 11px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.5);
+      font-family: 'IRANYekan', "Segoe UI", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      text-transform: none;
+      color: rgba(255, 255, 255, 0.9);
     }
 
     .input-wrap {
@@ -142,6 +150,85 @@
       animation: shimmer 1s linear infinite;
     }
 
+    .plan-section {
+      padding: 8px 0 4px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .plan-goal {
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.4;
+    }
+
+    .plan-steps {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .plan-steps li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.8);
+      padding: 3px 0;
+    }
+
+    .plan-steps li .step-icon {
+      font-size: 11px;
+      flex-shrink: 0;
+      width: 16px;
+      text-align: center;
+    }
+
+    .plan-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 4px;
+    }
+
+    .plan-meta {
+      font-size: 10px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    .plan-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 120ms ease;
+    }
+
+    .btn:hover { opacity: 0.85; }
+
+    .btn-cancel {
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.7);
+    }
+
+    .btn-confirm {
+      background: #6366f1;
+      color: #fff;
+    }
+
     @keyframes shimmer {
       0% { transform: translateX(-130%); }
       100% { transform: translateX(280%); }
@@ -152,8 +239,10 @@
   <div id="overlay" class="overlay">
     <div class="top-row">
       <div class="brand" aria-hidden="true">
-        <span class="brand-dot"></span>
-        <span class="brand-text">ALARA</span>
+        <img src="../ui/alara.svg"
+             class="brand-logo"
+             alt=""
+             draggable="false" />
       </div>
 
       <div class="input-wrap">
@@ -161,6 +250,22 @@
       </div>
 
       <div id="status" class="status">Ready</div>
+    </div>
+
+    <div id="planSection" class="plan-section" hidden>
+      <div id="planGoal" class="plan-goal"></div>
+      <ul id="planSteps" class="plan-steps"></ul>
+      <div class="plan-footer">
+        <span id="planMeta" class="plan-meta"></span>
+        <div class="plan-actions">
+          <button id="cancelBtn" class="btn btn-cancel">
+            Cancel
+          </button>
+          <button id="confirmBtn" class="btn btn-confirm">
+            Execute
+          </button>
+        </div>
+      </div>
     </div>
 
     <div id="stepLine" class="step-line"></div>
@@ -186,6 +291,11 @@
       reflecting: { label: 'Reflecting...', color: '#FF6B6B', progress: 'indeterminate' },
       done: { label: 'Done', color: '#2ECC71', progress: 'solid' },
       failed: { label: 'Failed', color: '#E74C3C', progress: 'solid' },
+      awaiting_confirm: {
+        label: 'Review plan',
+        color: '#9B59FF',
+        progress: 'hidden'
+      }
     };
 
     let state = 'idle';
@@ -259,7 +369,7 @@
       if (!text) return;
       clearResultTimer();
       clearStepText();
-      window.alara.send({ type: 'goal', text });
+      window.alara.send({ type: 'goal_submit', goal: text });
       setState('processing');
     }
 
@@ -299,6 +409,68 @@
 
       if (message.type === 'state') {
         setState(message.state || 'idle');
+        if (message.state === 'idle') {
+          goalInput.disabled = false;
+          planSection.hidden = true;
+          window.alara.resizeWindow(72);
+        } else if (message.state === 'planning') {
+          goalInput.disabled = true;
+        }
+        return;
+      }
+
+      if (message.type === 'status') {
+        statusEl.textContent = message.message;
+        return;
+      }
+
+      if (message.type === 'plan_ready') {
+        showPlan(message);
+        return;
+      }
+
+      if (message.type === 'execution_started') {
+        planSection.hidden = true;
+        goalInput.disabled = true;
+        setState('executing');
+        return;
+      }
+
+      if (message.type === 'step_progress') {
+        setStepText(message.steps_done, message.steps_total, message.description);
+        progressTrackEl.classList.remove('indeterminate');
+        progressTrackEl.classList.add('visible');
+        progressFillEl.style.background = '#6366f1';
+        progressFillEl.style.width = message.progress_pct + '%';
+        progressFillEl.style.transition = 'width 0.3s ease';
+        return;
+      }
+
+      if (message.type === 'execution_complete') {
+        clearStepText();
+        const success = message.success;
+        setState(success ? 'done' : 'failed',
+          success
+            ? `✓ ${message.steps_completed}/${message.total_steps} steps completed` 
+            : `✗ Failed — ${message.steps_completed}/${message.total_steps} steps`);
+        
+        if (success) {
+          progressFillEl.style.width = '100%';
+        }
+        
+        resultTimer = setTimeout(() => {
+          resetOverlayState();
+          window.alara.send({ type: 'hide_overlay' });
+        }, 3000);
+        return;
+      }
+
+      if (message.type === 'error') {
+        setState('failed', message.message);
+        setTimeout(() => {
+          goalInput.disabled = false;
+          setState('idle');
+        }, 2000);
         return;
       }
 
@@ -327,6 +499,52 @@
           window.alara.send({ type: 'hide_overlay' });
         }, 3000);
       }
+    });
+
+    function showPlan(message) {
+      const planGoal = document.getElementById('planGoal');
+      const planSteps = document.getElementById('planSteps');
+      const planMeta = document.getElementById('planMeta');
+      
+      planGoal.textContent = message.goal;
+      
+      planSteps.innerHTML = '';
+      message.steps.forEach(step => {
+        const icon = step.step_type === "filesystem" ? "📁"
+                   : step.step_type === "cli"        ? "⚡"
+                   : step.step_type === "system"     ? "⚙️"
+                   : "•";
+        
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="step-icon">${icon}</span>${step.description}`;
+        planSteps.appendChild(li);
+      });
+      
+      planMeta.textContent = `${message.step_count} steps · ${message.scope} · ${message.complexity}`;
+      
+      planSection.hidden = false;
+      
+      const calculatedHeight = 180 + (message.step_count * 28);
+      window.alara.resizeWindow(Math.max(220, Math.min(480, calculatedHeight)));
+      
+      setState('awaiting_confirm');
+    }
+
+    const confirmBtn = document.getElementById('confirmBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const planSection = document.getElementById('planSection');
+
+    confirmBtn.addEventListener('click', () => {
+      window.alara.send({ type: 'goal_confirm' });
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      window.alara.send({ type: 'goal_cancel' });
+      planSection.hidden = true;
+      goalInput.disabled = false;
+      goalInput.value = '';
+      setState('idle');
+      window.alara.resizeWindow(72);
     });
 
     setState('idle');
