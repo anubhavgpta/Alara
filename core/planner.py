@@ -13,6 +13,7 @@ from loguru import logger
 
 from alara.schemas.goal import GoalContext
 from alara.schemas.task_graph import Step, TaskGraph
+from alara.memory.models import MemoryContext
 
 
 class PlanningError(Exception):
@@ -43,14 +44,14 @@ class Planner:
 
         logger.info("Planner initialized successfully with model={}", self.model_name)
 
-    def plan(self, goal_context: GoalContext) -> TaskGraph:
+    def plan(self, goal_context: GoalContext, memory_context: MemoryContext | None = None) -> TaskGraph:
         logger.info(
             "Planning started | goal='{}' | complexity={}",
             goal_context.goal,
             goal_context.estimated_complexity,
         )
 
-        user_message = self._build_user_message(goal_context)
+        user_message = self._build_user_message(goal_context, memory_context)
         raw_response = self._call_gemini(user_message)
         parsed_steps = self._parse_response(raw_response)
 
@@ -216,8 +217,8 @@ class Planner:
 
         return steps
 
-    def _build_user_message(self, goal_context: GoalContext) -> str:
-        return (
+    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None) -> str:
+        message = (
             f"Platform: Windows 10/11\n"
             f"Shell: PowerShell\n"
             f"Package manager: winget\n"
@@ -241,6 +242,12 @@ class Planner:
             f"{goal_context.working_directory or 'not specified'}\n"
             f"Complexity: {goal_context.estimated_complexity}\n"
         )
+        
+        # Add memory context if provided
+        if memory_context is not None:
+            message += f"\n{memory_context.summary}\n"
+        
+        return message
 
     def _build_system_prompt(self) -> str:
         return (

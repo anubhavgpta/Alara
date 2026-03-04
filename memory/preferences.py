@@ -1,25 +1,463 @@
-"""SQLite-backed user preferences store for aliases, paths, and defaults."""
+"""Preference memory management for the ALARA memory layer."""
 
 from __future__ import annotations
 
+import json
+import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 
-class PreferencesStore:
-    """Persist and retrieve user preferences from SQLite."""
+from alara.memory.database import DatabaseManager
+from alara.memory.models import PreferenceEntry
+from alara.schemas.goal import GoalContext
+from alara.schemas.task_graph import TaskGraph
 
-    def __init__(self, db_path: Path) -> None:
-        """Initialize preferences store with a SQLite database path."""
-        # TODO: Implement SQLite connection/session setup.
-        pass
 
-    def get(self, key: str) -> Any:
-        """Read a preference value by key."""
-        # TODO: Implement key-based preference retrieval.
-        pass
-
-    def set(self, key: str, value: Any) -> None:
-        """Write a preference value by key."""
-        # TODO: Implement key-based preference persistence.
-        pass
+class PreferenceMemory:
+    """Persistent user preferences, path aliases, and inferred behaviors."""
+    
+    def __init__(self) -> None:
+        """Initialize preference memory."""
+        self.db = DatabaseManager.get_instance()
+        self._seed_defaults()
+        logger.info("PreferenceMemory initialized")
+    
+    def _seed_defaults(self) -> None:
+        """Insert default preferences if they don't exist."""
+        defaults = [
+            {
+                "key": "python_venv_name",
+                "value": "venv",
+                "category": "tool",
+                "source": "default",
+                "confidence": 0.8,
+            },
+            {
+                "key": "default_shell",
+                "value": "powershell",
+                "category": "tool",
+                "source": "default",
+                "confidence": 1.0,
+            },
+            {
+                "key": "preferred_package_manager",
+                "value": "pip",
+                "category": "tool",
+                "source": "default",
+                "confidence": 0.9,
+            },
+        ]
+        
+        for pref in defaults:
+            existing = self.db.execute(
+                "SELECT id FROM preferences WHERE key = ?",
+                (pref["key"],)
+            )
+            
+            if not existing:
+                now = datetime.now(timezone.utc).isoformat()
+                self.db.execute(
+                    """
+                    INSERT INTO preferences (
+                        id, key, value, category, confidence, source,
+                        usage_count, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()), pref["key"], json.dumps(pref["value"]),
+                        pref["category"], pref["confidence"], pref["source"],
+                        0, now, now
+                    )
+                )
+                logger.debug("Seeded default preference: {}", pref["key"])
+    
+    def set(self, key: str, value: Any, category: str = "general",
+            source: str = "user_explicit", confidence: float = 1.0) -> PreferenceEntry:
+        """
+        Upsert a preference.
+        
+        Args:
+            key: Preference key
+            value: Preference value (will be JSON serialized)
+            category: Preference category
+            source: Source of the preference
+            confidence: Confidence level (0.0 to 1.0)
+            
+        Returns:
+            The resulting PreferenceEntry
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        serialized_value = json.dumps(value)
+        
+        # Check if key exists
+        existing = self.db.execute(
+            "SELECT * FROM preferences WHERE key = ?",
+            (key,)
+        )
+        
+        if existing:
+            # Update existing
+            row = existing[0]
+            new_usage_count = row["usage_count"] + 1
+            
+            self.db.execute(
+                """
+                UPDATE preferences SET
+                    value = ?, confidence = ?, updated_at = ?, usage_count = ?
+                WHERE key = ?
+                """,
+                (serialized_value, confidence, now, new_usage_count, key)
+            )
+            
+            entry = PreferenceEntry(
+                id=row["id"],
+                key=row["key"],
+                value=serialized_value,
+                category=row["category"],
+                confidence=confidence,
+                source=row["source"],
+                usage_count=new_usage_count,
+                last_used_at=row["last_used_at"],
+                created_at=row["created_at"],
+                updated_at=now,
+            )
+            logger.debug("Updated preference: {}", key)
+        else:
+            # Insert new
+            entry_id = str(uuid.uuid4())
+            self.db.execute(
+                """
+                INSERT INTO preferences (
+                    id, key, value, category, confidence, source,
+                    usage_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry_id, key, serialized_value, category, confidence,
+                    source, 1, now, now
+                )
+            )
+            
+            entry = PreferenceEntry(
+                id=entry_id,
+                key=key,
+                value=serialized_value,
+                category=category,
+                confidence=confidence,
+                source=source,
+                usage_count=1,
+                last_used_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            logger.debug("Created new preference: {}", key)
+        
+        return entry
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        Get a preference value by key.
+        
+        Args:
+            key: Preference key
+            default: Default value if not found
+            
+        Returns:
+            Deserialized preference value or default
+        """
+        try:
+            result = self.db.execute(
+                "SELECT * FROM preferences WHERE key = ?",
+                (key,)
+            )
+            
+            if not result:
+                return default
+            
+            row = result[0]
+            
+            # Update usage count and last_used_at
+            now = datetime.now(timezone.utc).isoformat()
+            self.db.execute(
+                """
+                UPDATE preferences SET
+                    usage_count = usage_count + 1, last_used_at = ?
+                WHERE key = ?
+                """,
+                (now, key)
+            )
+            
+            # Deserialize and return value
+            return json.loads(row["value"])
+            
+        except Exception as e:
+            logger.warning("Failed to get preference {}: {}", key, e)
+            return default
+    
+    def get_entry(self, key: str) -> PreferenceEntry | None:
+        """
+        Get the full PreferenceEntry including metadata.
+        
+        Args:
+            key: Preference key
+            
+        Returns:
+            PreferenceEntry object or None if not found
+        """
+        result = self.db.execute(
+            "SELECT * FROM preferences WHERE key = ?",
+            (key,)
+        )
+        
+        if not result:
+            return None
+        
+        row = result[0]
+        return PreferenceEntry(
+            id=row["id"],
+            key=row["key"],
+            value=row["value"],
+            category=row["category"],
+            confidence=row["confidence"],
+            source=row["source"],
+            usage_count=row["usage_count"],
+            last_used_at=row["last_used_at"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+    
+    def get_by_category(self, category: str) -> list[PreferenceEntry]:
+        """
+        Get all preferences in a category.
+        
+        Args:
+            category: Preference category
+            
+        Returns:
+            List of PreferenceEntry objects
+        """
+        results = self.db.execute(
+            "SELECT * FROM preferences WHERE category = ? ORDER BY usage_count DESC",
+            (category,)
+        )
+        
+        entries = []
+        for row in results:
+            entry = PreferenceEntry(
+                id=row["id"],
+                key=row["key"],
+                value=row["value"],
+                category=row["category"],
+                confidence=row["confidence"],
+                source=row["source"],
+                usage_count=row["usage_count"],
+                last_used_at=row["last_used_at"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            entries.append(entry)
+        
+        return entries
+    
+    def set_path_alias(self, alias: str, absolute_path: str) -> PreferenceEntry:
+        """
+        Convenience method for storing path aliases.
+        
+        Args:
+            alias: Path alias name
+            absolute_path: Absolute path
+            
+        Returns:
+            The created/updated PreferenceEntry
+        """
+        normalized_path = Path(absolute_path).as_posix()
+        return self.set(alias, normalized_path, category="path")
+    
+    def get_path_alias(self, alias: str) -> str | None:
+        """
+        Resolves a path alias to its absolute path.
+        
+        Args:
+            alias: Path alias name
+            
+        Returns:
+            Absolute path or None if not found
+        """
+        # Try exact match first
+        result = self.get(alias)
+        if result is not None:
+            return str(result)
+        
+        # Try case-insensitive match
+        results = self.db.execute(
+            "SELECT * FROM preferences WHERE category = 'path' AND key LIKE ?",
+            (alias,)
+        )
+        
+        if results:
+            return json.loads(results[0]["value"])
+        
+        return None
+    
+    def get_all_path_aliases(self) -> dict[str, str]:
+        """
+        Returns all path aliases as {alias: absolute_path} dict.
+        
+        Returns:
+            Dictionary mapping aliases to absolute paths
+        """
+        results = self.db.execute(
+            "SELECT key, value FROM preferences WHERE category = 'path'"
+        )
+        
+        aliases = {}
+        for row in results:
+            aliases[row["key"]] = json.loads(row["value"])
+        
+        return aliases
+    
+    def infer_from_execution(self, goal: str, task_graph: TaskGraph,
+                              result) -> None:
+        """
+        Automatically infer preferences from a successful execution.
+        
+        Args:
+            goal: The original goal string
+            task_graph: The executed task graph
+            result: The execution result
+        """
+        if not result.success:
+            return
+        
+        try:
+            # Extract path aliases
+            self._infer_path_aliases(goal, task_graph)
+            
+            # Extract tool preferences
+            self._infer_tool_preferences(task_graph)
+            
+            # Extract package patterns
+            self._infer_package_patterns(task_graph)
+            
+            logger.debug("Completed preference inference from execution")
+            
+        except Exception as e:
+            logger.warning("Preference inference failed: {}", e)
+    
+    def _infer_path_aliases(self, goal: str, task_graph: TaskGraph) -> None:
+        """Extract path aliases from goal and execution."""
+        # Simple heuristic: look for folder names in goal that match paths in steps
+        goal_words = re.findall(r'\b\w+\b', goal.lower())
+        
+        for step in task_graph.steps:
+            if step.step_type.value == "filesystem":
+                for param_value in step.params.values():
+                    if isinstance(param_value, str) and Path(param_value).is_absolute():
+                        # Check if any goal word matches part of this path
+                        path_parts = Path(param_value).parts
+                        for word in goal_words:
+                            if len(word) > 3 and word in [p.lower() for p in path_parts]:
+                                # Store as alias
+                                alias = f"{word} folder"
+                                existing = self.get_path_alias(alias)
+                                if existing is None or existing != param_value:
+                                    self.set_path_alias(alias, param_value)
+                                    logger.debug("Inferred path alias: {} -> {}", alias, param_value)
+    
+    def _infer_tool_preferences(self, task_graph: TaskGraph) -> None:
+        """Extract tool preferences from CLI steps."""
+        tools_seen = set()
+        
+        for step in task_graph.steps:
+            if step.step_type.value == "cli" and "command" in step.params:
+                command = step.params["command"]
+                if isinstance(command, str):
+                    # Extract tool names from commands
+                    if command.startswith(("pip ", "pip3 ")):
+                        tools_seen.add("pip")
+                    elif command.startswith(("npm ", "yarn ")):
+                        tools_seen.add("node")
+                    elif command.startswith(("git ")):
+                        tools_seen.add("git")
+                    elif command.startswith(("docker ")):
+                        tools_seen.add("docker")
+        
+        # Store tool preferences
+        for tool in tools_seen:
+            key = f"preferred_{tool}"
+            existing = self.get(key)
+            if existing is None:
+                self.set(key, tool, category="tool", source="inferred", confidence=0.7)
+                logger.debug("Inferred tool preference: {} = {}", key, tool)
+    
+    def _infer_package_patterns(self, task_graph: TaskGraph) -> None:
+        """Extract commonly used packages from pip install commands."""
+        packages = set()
+        
+        for step in task_graph.steps:
+            if step.step_type.value == "cli" and "command" in step.params:
+                command = step.params["command"]
+                if isinstance(command, str) and command.startswith("pip install"):
+                    # Extract package names
+                    parts = command.split()
+                    if len(parts) >= 3:
+                        for part in parts[2:]:
+                            if part and not part.startswith("-"):
+                                packages.add(part)
+        
+        if packages:
+            key = "common_packages"
+            existing_packages = self.get(key, [])
+            if isinstance(existing_packages, list):
+                # Merge with existing packages
+                merged_packages = list(set(existing_packages + list(packages)))
+                self.set(key, merged_packages, category="package", source="inferred", confidence=0.6)
+                logger.debug("Inferred common packages: {}", packages)
+    
+    def delete(self, key: str) -> bool:
+        """
+        Delete a preference by key.
+        
+        Args:
+            key: Preference key to delete
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        result = self.db.execute("DELETE FROM preferences WHERE key = ?", (key,))
+        deleted = result > 0
+        if deleted:
+            logger.debug("Deleted preference: {}", key)
+        return deleted
+    
+    def export(self) -> dict[str, Any]:
+        """
+        Export all preferences as a serializable dict.
+        
+        Returns:
+            Dictionary containing all preferences
+        """
+        results = self.db.execute("SELECT * FROM preferences ORDER BY category, key")
+        
+        export_data = {}
+        for row in results:
+            try:
+                value = json.loads(row["value"])
+                export_data[row["key"]] = {
+                    "value": value,
+                    "category": row["category"],
+                    "confidence": row["confidence"],
+                    "source": row["source"],
+                    "usage_count": row["usage_count"],
+                    "last_used_at": row["last_used_at"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            except json.JSONDecodeError:
+                logger.warning("Failed to deserialize preference value for key: {}", row["key"])
+        
+        return export_data

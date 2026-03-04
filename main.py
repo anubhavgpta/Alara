@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ from rich.text import Text
 from alara.core.goal_understander import GoalUnderstander
 from alara.core.orchestrator import Orchestrator
 from alara.core.planner import Planner, PlanningError
+from alara.memory import MemoryManager
 from alara.schemas.goal import GoalContext
 from alara.schemas.task_graph import StepStatus, TaskGraph
 
@@ -105,12 +107,21 @@ def _run_plan(
     debug: bool,
     auto_confirm: bool = False,
 ) -> None:
+    # Get memory manager instance
+    memory = MemoryManager.get_instance()
+    
     goal_context = understander.understand(raw_input)
     if debug:
         _render_goal_context(goal_context)
 
+    # Build memory context before planning
+    memory_context = memory.build_context(raw_input, goal_context)
+    if debug:
+        console.print("[bold bright_magenta]Memory Context Summary:[/bold bright_magenta]")
+        console.print(memory_context.summary[:500] + "..." if len(memory_context.summary) > 500 else memory_context.summary)
+
     console.print("[dim]Planning...[/dim]")
-    task_graph = planner.plan(goal_context)
+    task_graph = planner.plan(goal_context, memory_context)
     _render_task_graph(task_graph)
 
     console.print(f"Goal: {task_graph.goal}")
@@ -134,8 +145,23 @@ def _run_plan(
 
     console.print("[dim]Executing...[/dim]")
     
+    # Start session tracking before execution
+    entry_id = memory.session.start_goal(raw_input, goal_context)
+    
+    # Track execution time
+    start_time = time.monotonic()
+    
     # Run the orchestrator
     result = orchestrator.run(task_graph, progress_callback=_print_progress)
+    
+    # Calculate execution duration
+    duration_ms = (time.monotonic() - start_time) * 1000
+    
+    # Update memory after execution
+    memory.after_execution(
+        raw_input, goal_context, task_graph,
+        result, entry_id, duration_ms
+    )
     
     # Print final result
     if result.success:
@@ -162,6 +188,11 @@ def _run_plan(
         console.print(
             f"[dim]Debug: steps={len(task_graph.steps)} | created_at={task_graph.created_at}[/dim]"
         )
+        
+        # Print memory health and context summary
+        console.print("\n[bold bright_magenta]Memory Health:[/bold bright_magenta]")
+        memory_health = memory.health_check()
+        console.print(Syntax(json.dumps(memory_health, indent=2), "json", theme="monokai", line_numbers=False))
 
 
 def _run_interactive(
@@ -193,6 +224,10 @@ def _run_interactive(
 
 def main(argv: Optional[list[str]] = None) -> int:
     load_dotenv()
+    
+    # Initialize MemoryManager once, after load_dotenv
+    memory = MemoryManager.get_instance()
+    
     parser = _build_parser()
     args = parser.parse_args(argv)
 
