@@ -18,7 +18,7 @@ class StepType(str, Enum):
     FILESYSTEM = "filesystem"
     CLI = "cli"
     APP_ADAPTER = "app_adapter"
-    UI_AUTOMATION = "ui_automation"
+    CODE = "code"
     VISION = "vision"
     SYSTEM = "system"
 
@@ -29,7 +29,6 @@ class ExecutionLayer(str, Enum):
     OS_API = "os_api"
     APP_ADAPTER = "app_adapter"
     CLI = "cli"
-    UI_AUTOMATION = "ui_automation"
     VISION = "vision"
 
 

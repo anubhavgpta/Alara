@@ -6,6 +6,7 @@ from loguru import logger
 
 from alara.capabilities.base import BaseCapability, CapabilityResult
 from alara.capabilities.cli import CLICapability
+from alara.capabilities.code import CodeCapability
 from alara.capabilities.filesystem import FilesystemCapability
 from alara.capabilities.system import SystemCapability
 from alara.schemas.task_graph import Step, StepType
@@ -18,12 +19,17 @@ class ExecutionRouter:
         self.filesystem = FilesystemCapability()
         self.cli = CLICapability()
         self.system = SystemCapability()
+        self.code = CodeCapability()
 
     def route(self, step: Step) -> CapabilityResult:
         """Execute a single step using the capability hierarchy."""
         logger.debug("Routing step {} ({}) to capability", step.id, step.operation)
         
         try:
+            # Route code operations directly to CodeCapability
+            if step.step_type == StepType.CODE or self.code.supports(step.operation):
+                return self.code.execute(step.operation, step.params)
+            
             # Route based on step_type with exact priority order
             if step.step_type == StepType.FILESYSTEM:
                 if self.filesystem.supports(step.operation):
@@ -44,13 +50,6 @@ class ExecutionRouter:
             elif step.step_type == StepType.APP_ADAPTER:
                 logger.warning(
                     "App adapter not yet implemented, falling back to CLI for operation '{}'",
-                    step.operation
-                )
-                return self.cli.execute(step.operation, step.params)
-
-            elif step.step_type == StepType.UI_AUTOMATION:
-                logger.warning(
-                    "UI automation not yet implemented, falling back to CLI for operation '{}'",
                     step.operation
                 )
                 return self.cli.execute(step.operation, step.params)

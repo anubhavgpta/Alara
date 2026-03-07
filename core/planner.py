@@ -44,14 +44,14 @@ class Planner:
 
         logger.info("Planner initialized successfully with model={}", self.model_name)
 
-    def plan(self, goal_context: GoalContext, memory_context: MemoryContext | None = None) -> TaskGraph:
+    def plan(self, goal_context: GoalContext, memory_context: MemoryContext | None = None, code_context: str | None = None) -> TaskGraph:
         logger.info(
             "Planning started | goal='{}' | complexity={}",
             goal_context.goal,
             goal_context.estimated_complexity,
         )
 
-        user_message = self._build_user_message(goal_context, memory_context)
+        user_message = self._build_user_message(goal_context, memory_context, code_context)
         raw_response = self._call_gemini(user_message)
         parsed_steps = self._parse_response(raw_response)
 
@@ -217,7 +217,7 @@ class Planner:
 
         return steps
 
-    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None) -> str:
+    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None, code_context: str | None = None) -> str:
         message = (
             f"Platform: Windows 10/11\n"
             f"Shell: PowerShell\n"
@@ -262,6 +262,10 @@ class Planner:
                 if last_paths_text != "Last executed paths:\n":  # Only add if we found paths
                     message += f"\n{last_paths_text}\n"
         
+        # Add code context if provided
+        if code_context and code_context.strip():
+            message += f"\n{code_context}\n"
+        
         return message
 
     def _build_system_prompt(self) -> str:
@@ -289,7 +293,17 @@ class Planner:
             "System:\n"
             "  check_process     params: { process_name }\n"
             "  get_env_var       params: { name }\n"
-            "  set_env_var       params: { name, value }\n\n"
+            "  set_env_var       params: { name, value }\n"
+            "Code:\n"
+            "  read_file         params: { path }\n"
+            "  read_lines        params: { path, start, end }\n"
+            "  analyze_structure  params: { path }\n"
+            "  edit_file         params: { path, old_content, new_content }\n"
+            "  append_to_file    params: { path, content }\n"
+            "  insert_after_line params: { path, line_number, content }\n"
+            "  summarize_file    params: { path, max_lines }\n"
+            "  scan_project      params: { root, extensions, max_files, exclude_dirs }\n"
+            "  check_contains    params: { path, search }\n\n"
             "Only use these verification_method values:\n"
             "  check_path_exists\n"
             "  check_exit_code_zero\n"
@@ -367,6 +381,31 @@ class Planner:
             "or any unresolved pronoun is always wrong. Every\n"
             "path in every step must be a fully qualified\n"
             "absolute path.\n\n"
+            "CODE AWARENESS RULES:\n\n"
+            "Before editing any existing file, always include a\n"
+            "read_file or analyze_structure step first with\n"
+            "depends_on pointing to it from the edit step.\n"
+            "Never edit a file blindly without reading it first.\n\n"
+            "When a goal involves modifying existing code:\n"
+            "1. Step 1: read_file or analyze_structure to\n"
+            "   understand current state\n"
+            "2. Step 2+: edit_file, append_to_file, or\n"
+            "   insert_after_line with depends_on: [1]\n\n"
+            "For edit_file steps, the old_content param must be\n"
+            "a realistic excerpt from the file. Since Gemini\n"
+            "cannot know the exact content in advance, use a\n"
+            "descriptive placeholder like:\n"
+            "  \"<<READ_FIRST: use content from step 1 output>>\"\n"
+            "The orchestrator will handle this via the\n"
+            "code_edit_resolver (see below).\n\n"
+            "When a CODE CONTEXT section is present in this\n"
+            "message, use it to inform all planning decisions:\n"
+            "- Use the exact file paths shown in the project\n"
+            "  structure, never invent paths\n"
+            "- Reference class names, function names, and\n"
+            "  imports shown in the structure analysis\n"
+            "- If a relevant file is listed in key files,\n"
+            "  prefer editing it over creating a new file\n\n"
             "Ordering and dependencies:\n"
             "- Steps must be ordered so dependencies always come first.\n"
             "- depends_on must only reference earlier step IDs.\n"
@@ -375,7 +414,8 @@ class Planner:
             "- filesystem operations -> preferred_layer: os_api\n"
             "- run_command -> preferred_layer: cli\n"
             "- open_app/close_app/focus_app -> preferred_layer: app_adapter\n"
-            "- system operations -> preferred_layer: os_api\n\n"
+            "- system operations -> preferred_layer: os_api\n"
+            "- code operations -> preferred_layer: os_api\n\n"
             "Fallback strategy:\n"
             "- If a CLI step could alternatively be done via filesystem, set fallback_strategy to \"use_filesystem\".\n"
             "- If a step is optional and failure should not block the task, set fallback_strategy to \"skip_optional\".\n"

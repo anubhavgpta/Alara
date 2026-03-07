@@ -16,6 +16,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
+from alara.core.code_context import CodeContextBuilder
 from alara.core.goal_understander import GoalUnderstander
 from alara.core.orchestrator import Orchestrator
 from alara.core.planner import Planner, PlanningError
@@ -54,7 +55,6 @@ def _render_task_graph(task_graph: TaskGraph) -> None:
         "cli": "yellow",
         "app_adapter": "blue",
         "system": "cyan",
-        "ui_automation": "red",
         "vision": "magenta",
     }
 
@@ -120,8 +120,18 @@ def _run_plan(
         console.print("[bold bright_magenta]Memory Context Summary:[/bold bright_magenta]")
         console.print(memory_context.summary[:500] + "..." if len(memory_context.summary) > 500 else memory_context.summary)
 
+    # Build code context before planning
+    code_context_builder = CodeContextBuilder()
+    code_context = code_context_builder.build(
+        goal=goal_context.goal,
+        working_dir=str(goal_context.working_directory) if goal_context.working_directory else None
+    )
+    if debug and code_context and code_context.strip():
+        console.print("[bold bright_magenta]Code Context Summary:[/bold bright_magenta]")
+        console.print(code_context[:500] + "..." if len(code_context) > 500 else code_context)
+
     console.print("[dim]Planning...[/dim]")
-    task_graph = planner.plan(goal_context, memory_context)
+    task_graph = planner.plan(goal_context, memory_context, code_context)
     _render_task_graph(task_graph)
 
     console.print(f"Goal: {task_graph.goal}")
@@ -258,3 +268,6 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+    print('hello world')

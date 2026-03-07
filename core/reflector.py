@@ -173,8 +173,8 @@ RESPONSE FORMAT (JSON only, no explanations outside JSON):
   "action": "retry" | "skip" | "escalate",
   "reason": "detailed explanation of your decision",
   "modified_step": {{
-    "step_type": "filesystem|cli|system|app_adapter|ui_automation|vision",
-    "preferred_layer": "os_api|app_adapter|cli|ui_automation|vision", 
+    "step_type": "filesystem|cli|system|app_adapter|vision",
+    "preferred_layer": "os_api|app_adapter|cli|vision", 
     "operation": "operation_name",
     "params": {{}},
     "description": "what this step does",

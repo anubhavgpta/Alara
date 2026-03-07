@@ -55,12 +55,25 @@ class Orchestrator:
             logger.info("Executing step {}: {} — {}", step.id, step.operation, step.description)
 
             try:
+                # Resolve code edit placeholders if needed
+                if step.operation == "edit_file":
+                    step = self._resolve_code_edit(step, execution_log)
+                
                 # Execute step
                 capability_result = self.router.route(step)
                 step.attempts += 1
 
-                # Verify result
-                verification_result = self.verifier.verify(step, capability_result)
+                # Verify result only if capability succeeded
+                if not capability_result.success:
+                    # Skip verification — capability already failed
+                    verification_result = VerificationResult(
+                        passed=False,
+                        method="capability_failed",
+                        detail=capability_result.error or "Capability failed"
+                    )
+                else:
+                    # Run normal verification
+                    verification_result = self.verifier.verify(step, capability_result)
 
                 # Log attempt
                 attempt_log = self._log_step_attempt(step, capability_result, verification_result, step.attempts)
@@ -210,3 +223,84 @@ class Orchestrator:
             "verification_detail": verification_result.detail,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _resolve_code_edit(self, step: Any, execution_log: list[dict[str, Any]]) -> Any:
+        """
+        For edit_file steps with <<READ_FIRST>> placeholders,
+        substitute the actual file content from the most
+        recent successful read_file step in execution_log.
+        """
+        from alara.schemas.task_graph import Step
+        
+        # Only act on edit_file steps with the placeholder
+        if not isinstance(step, Step) or step.operation != "edit_file":
+            return step
+        
+        old_content = step.params.get("old_content", "")
+        new_content = step.params.get("new_content", "")
+        
+        has_placeholder = (
+            "<<READ_FIRST" in old_content or
+            "<<READ_FIRST" in new_content
+        )
+        if not has_placeholder:
+            return step
+        
+        # Find the most recent successful read_file step
+        # targeting the same file path
+        target_path = step.params.get("path", "")
+        file_content = None
+        
+        for log_entry in reversed(execution_log):
+            if not log_entry.get("success"):
+                continue
+            if log_entry.get("operation") not in (
+                "read_file", "analyze_structure"
+            ):
+                continue
+            # Accept if same path OR if no path info
+            # available (take most recent read regardless)
+            log_output = log_entry.get("output", "")
+            if log_output:
+                file_content = log_output
+                break
+        
+        if file_content is None:
+            # No read step found — return step unchanged
+            # and let the capability return "not found"
+            # which will trigger reflection naturally
+            return step
+        
+        # Replace placeholder in old_content:
+        # The placeholder in old_content represents the
+        # ANCHOR — text we want to find and replace.
+        # For "add to end of file" patterns where
+        # old_content IS the placeholder, use the last
+        # non-empty line of the file as an anchor.
+        
+        if old_content.strip() == "<<READ_FIRST: use content from step 1 output>>":
+            # Anchor = last meaningful line of file
+            lines = [
+                l for l in file_content.splitlines()
+                if l.strip()
+            ]
+            anchor = lines[-1] if lines else file_content[-100:]
+            step.params["old_content"] = anchor
+        else:
+            step.params["old_content"] = old_content.replace(
+                "<<READ_FIRST: use content from step 1 output>>",
+                file_content
+            )
+        
+        # Replace placeholder in new_content:
+        # new_content typically contains the anchor
+        # PLUS new code to append after it.
+        # Substitute the anchor correctly.
+        if "<<READ_FIRST: use content from step 1 output>>" in new_content:
+            anchor = step.params["old_content"]
+            step.params["new_content"] = new_content.replace(
+                "<<READ_FIRST: use content from step 1 output>>",
+                anchor
+            )
+        
+        return step
