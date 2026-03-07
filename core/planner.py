@@ -246,6 +246,21 @@ class Planner:
         # Add memory context if provided
         if memory_context is not None:
             message += f"\n{memory_context.summary}\n"
+            
+            # Fallback: If Last executed paths is missing but we have recent goals, add it manually
+            if "Last executed paths" not in memory_context.summary and memory_context.recent_goals:
+                last_paths_text = "Last executed paths:\n"
+                for entry in memory_context.recent_goals[:3]:
+                    if entry.status == "success" and entry.execution_log:
+                        for log in entry.execution_log:
+                            detail = log.get("verification_detail", "")
+                            if detail.startswith("Path exists:"):
+                                path = detail.replace("Path exists:", "").strip()
+                                path = path.replace("\\", "/")
+                                last_paths_text += f"  {entry.goal[:55]} → {path}\n"
+                                break
+                if last_paths_text != "Last executed paths:\n":  # Only add if we found paths
+                    message += f"\n{last_paths_text}\n"
         
         return message
 
@@ -322,17 +337,36 @@ class Planner:
             "   like \"testapp\" as working_dir.\n\n"
             "8. Always use forward slashes in all generated paths even on\n"
             "   Windows — the execution layer handles conversion.\n\n"
-            "CONTEXT RESOLUTION RULES:\n"
-            "If the goal contains pronouns or references like \"it\",\n"
-            "\"there\", \"that folder\", \"the project\", \"that directory\",\n"
-            "\"inside it\", \"in there\", or similar, resolve them using\n"
-            "the MEMORY CONTEXT provided. Look at the most recently\n"
-            "completed goal and its step paths to determine what \"it\"\n"
-            "refers to. If the last goal created a directory at an\n"
-            "absolute path, and the current goal says \"in it\" or\n"
-            "\"inside it\", use that same absolute path as the base.\n"
-            "Never leave a pronoun unresolved — always substitute\n"
-            "the concrete absolute path from recent execution history.\n\n"
+            "CONTEXT RESOLUTION RULES:\n\n"
+            "The user message includes a MEMORY CONTEXT section\n"
+            "containing \"Last executed paths\". This shows the\n"
+            "absolute paths used in recent successful executions.\n\n"
+            "If the goal contains any of these pronoun references:\n"
+            "  \"in it\", \"inside it\", \"in there\", \"in that folder\",\n"
+            "  \"in that directory\", \"in the project\", \"in the repo\",\n"
+            "  \"in the venv\", \"in the environment\", \"there\",\n"
+            "  \"that folder\", \"that directory\", \"the same place\"\n\n"
+            "You MUST resolve them using the Last executed paths\n"
+            "section of the MEMORY CONTEXT as follows:\n\n"
+            "1. Read every entry in \"Last executed paths\"\n"
+            "2. Find the most recently executed path that is\n"
+            "   semantically relevant to the pronoun in context\n"
+            "   - \"in it\" after creating a folder → use that\n"
+            "     folder's absolute path as the base directory\n"
+            "   - \"in the venv\" → use the venv path\n"
+            "   - \"in the project\" → use the project directory\n"
+            "3. Substitute the resolved absolute path into the\n"
+            "   step params — never use a bare pronoun in any\n"
+            "   path parameter\n"
+            "4. If multiple candidates exist, prefer the most\n"
+            "   recent one\n"
+            "5. If no candidate exists in memory context, use\n"
+            "   Path.home() as the base and note the assumption\n"
+            "   in the step description\n\n"
+            "CRITICAL: A path parameter containing \"it\", \"there\",\n"
+            "or any unresolved pronoun is always wrong. Every\n"
+            "path in every step must be a fully qualified\n"
+            "absolute path.\n\n"
             "Ordering and dependencies:\n"
             "- Steps must be ordered so dependencies always come first.\n"
             "- depends_on must only reference earlier step IDs.\n"
