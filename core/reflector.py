@@ -61,15 +61,35 @@ class Reflector:
             raw_response = response.text.strip()
             logger.debug("Raw reflection response: {}", raw_response)
             
-            # Parse JSON response with fence stripping
-            json_text = raw_response
-            if json_text.startswith("```json"):
-                json_text = json_text[7:]
-            if json_text.endswith("```"):
-                json_text = json_text[:-3]
-            json_text = json_text.strip()
+            # JSON repair step before parsing
+            text = raw_response
             
-            parsed = json.loads(json_text)
+            # If response ends mid-string, close it
+            if text.count('"') % 2 != 0:
+                text = text + '"'
+            
+            # If response is missing closing braces/brackets
+            open_braces = text.count('{') - text.count('}')
+            open_brackets = text.count('[') - text.count(']')
+            text = text + (']' * open_brackets)
+            text = text + ('}' * open_braces)
+            
+            # Parse JSON with error handling
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse reflection JSON: {}", e)
+                # Fall back to escalate if repair fails
+                return ReflectionResult(action="escalate", reason=f"JSON parsing failed: {e}")
+            
+            # Parse response with fence stripping
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+            
+            parsed = json.loads(text)
             
             action = parsed.get("action", "escalate")
             reason = parsed.get("reason", "No reason provided")

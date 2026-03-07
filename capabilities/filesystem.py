@@ -105,11 +105,19 @@ class FilesystemCapability(BaseCapability):
     def _create_file(self, params: dict[str, Any]) -> CapabilityResult:
         path = self._resolve(str(params.get("path", "")))
         content = str(params.get("content", ""))
+        
         if path.exists():
-            return CapabilityResult.fail(f"File already exists: {path}")
+            # If file exists and content is provided, overwrite it
+            if content:  # Content provided - overwrite existing file
+                path.write_text(content, encoding="utf-8")
+                return CapabilityResult.ok(output=f"Overwrote existing file: {path}")
+            else:  # No content provided - file already exists, nothing to do
+                return CapabilityResult.ok(output=f"File already exists: {path}")
+        
+        # File doesn't exist - create it normally
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        return CapabilityResult.ok()
+        return CapabilityResult.ok(output=f"Created file: {path}")
 
     def _write_file(self, params: dict[str, Any]) -> CapabilityResult:
         path = self._resolve(str(params.get("path", "")))
