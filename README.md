@@ -1,6 +1,7 @@
 ﻿<p align="center">
   <img src="./alara-banner.jpg" alt="ALARA Banner" width="100%" />
 </p>
+
 # ALARA
 **Ambient Language & Reasoning Assistant**
 
