@@ -20,10 +20,17 @@ from alara.schemas.task_graph import TaskGraph
 class PreferenceMemory:
     """Persistent user preferences, path aliases, and inferred behaviors."""
     
+    # Reserved Windows path segments that should never be stored as aliases
+    RESERVED_PATH_SEGMENTS = {
+        "users", "appdata", "windows", "program files", "program files (x86)",
+        "programdata", "system32", "local", "roaming", "temp", "tmp",
+    }
+    
     def __init__(self) -> None:
         """Initialize preference memory."""
         self.db = DatabaseManager.get_instance()
         self._seed_defaults()
+        self._fix_stale_file_aliases()
         logger.info("PreferenceMemory initialized")
     
     def _seed_defaults(self) -> None:
@@ -374,6 +381,13 @@ class PreferenceMemory:
                                 # Store as alias using best matching path segment
                                 alias = f"{word} folder"
                                 best_path = self._best_alias_path(word, Path(raw_path))
+                                
+                                # Additional check: ensure the best path doesn't point directly to reserved segments
+                                best_path_parts = Path(best_path).parts
+                                if len(best_path_parts) > 0 and best_path_parts[-1].lower() in self.RESERVED_PATH_SEGMENTS:
+                                    logger.debug(f"Skipping alias '{alias}' -> '{best_path}' because it points to reserved segment")
+                                    continue
+                                
                                 existing = self.get_path_alias(alias)
                                 if existing is None or existing != best_path:
                                     self.set_path_alias(alias, best_path)
@@ -391,6 +405,7 @@ class PreferenceMemory:
            if it's a file, else str(full_path)
         2. Walk the path parts and find the part
            that most closely matches the noun.
+           Skip reserved Windows segments.
            Return the path up to and including that
            part.
         3. If no part matches, return the parent
@@ -399,9 +414,13 @@ class PreferenceMemory:
         noun_lower = noun.lower().strip()
         parts = full_path.parts
         
-        # Check each path segment
+        # Check each path segment, skipping reserved ones
         for i, part in enumerate(parts):
             if noun_lower in part.lower():
+                # Check if this segment is reserved
+                if part.lower() in self.RESERVED_PATH_SEGMENTS:
+                    continue  # Skip reserved segments
+                
                 # Return path up to this segment
                 matched = Path(*parts[:i+1])
                 return str(matched).replace("\\", "/")
@@ -473,7 +492,7 @@ class PreferenceMemory:
             True if deleted, False if not found
         """
         result = self.db.execute("DELETE FROM preferences WHERE key = ?", (key,))
-        deleted = result > 0
+        deleted = len(result) > 0 if isinstance(result, list) else result > 0
         if deleted:
             logger.debug("Deleted preference: {}", key)
         return deleted
@@ -505,3 +524,43 @@ class PreferenceMemory:
                 logger.warning("Failed to deserialize preference value for key: {}", row["key"])
         
         return export_data
+    
+    def _fix_stale_file_aliases(self) -> None:
+        """
+        One-time cleanup: find any stored path aliases
+        whose value points to a file (has a suffix like
+        .py, .txt, .md, .json etc) and replace the
+        value with the parent directory.
+        
+        Also removes aliases pointing to reserved Windows
+        path segments.
+        
+        This repairs aliases stored before the
+        _best_alias_path fix was applied.
+        """
+        from pathlib import Path
+        
+        aliases = self.get_all_path_aliases()
+        for noun, path_str in aliases.items():
+            p = Path(path_str)
+            path_parts = p.parts  # Define path_parts here for both cases
+            
+            # Fix 1: Replace file paths with parent directory
+            if p.suffix:  # it's a file path
+                fixed = str(p.parent).replace("\\", "/")
+                # Use the internal set method to update
+                self.set(noun, fixed)
+                logger.debug(
+                    f"Fixed stale file alias: "
+                    f"{noun} -> {path_str} => {fixed}"
+                )
+            else:
+                # Fix 2: Remove aliases pointing to reserved segments
+                # Only block if the FINAL segment is reserved (not parent directories)
+                if len(path_parts) > 0 and path_parts[-1].lower() in self.RESERVED_PATH_SEGMENTS:
+                    # Delete the problematic alias
+                    self.delete(noun)
+                    logger.debug(
+                        f"Removed reserved segment alias: "
+                        f"{noun} -> {path_str}"
+                    )
