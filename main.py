@@ -16,6 +16,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
+from alara.core.chain import ChainContext, PlanResult
 from alara.core.code_context import CodeContextBuilder
 from alara.core.goal_understander import GoalUnderstander
 from alara.core.orchestrator import Orchestrator
@@ -41,6 +42,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ALARA - Agentic Desktop AI")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("--goal", type=str, default=None, help="Run a single goal and exit")
+    parser.add_argument(
+        "--then",
+        action="append",
+        dest="then_goals",
+        metavar="GOAL",
+        help="Chain additional goals after the main goal"
+    )
+    parser.add_argument(
+        "--interactive", "-i",
+        action="store_true",
+        help="After each goal, prompt for the next goal"
+    )
     return parser
 
 
@@ -106,7 +119,8 @@ def _run_plan(
     orchestrator: Orchestrator,
     debug: bool,
     auto_confirm: bool = False,
-) -> None:
+    chain_context: Optional[ChainContext] = None,
+) -> PlanResult:
     # Get memory manager instance
     memory = MemoryManager.get_instance()
     
@@ -131,7 +145,16 @@ def _run_plan(
         console.print(code_context[:500] + "..." if len(code_context) > 500 else code_context)
 
     console.print("[dim]Planning...[/dim]")
-    task_graph = planner.plan(goal_context, memory_context, code_context)
+    
+    # Build chain context block if provided
+    chain_context_block = None
+    if chain_context and not chain_context.is_empty:
+        chain_context_block = chain_context.build_context_block()
+        if debug:
+            console.print("[bold bright_magenta]Chain Context:[/bold bright_magenta]")
+            console.print(chain_context_block)
+    
+    task_graph = planner.plan(goal_context, memory_context, code_context, chain_context_block)
     _render_task_graph(task_graph)
 
     console.print(f"Goal: {task_graph.goal}")
@@ -151,7 +174,11 @@ def _run_plan(
         confirm = input().strip().lower()
         if confirm != "y":
             console.print("Plan cancelled.", style="dim")
-            return
+            return PlanResult(
+                task_graph=None,
+                execution_log=[],
+                success=False
+            )
 
     console.print("[dim]Executing...[/dim]")
     
@@ -212,6 +239,13 @@ def _run_plan(
         console.print("\n[bold bright_magenta]Memory Health:[/bold bright_magenta]")
         memory_health = memory.health_check()
         console.print(Syntax(json.dumps(memory_health, indent=2), "json", theme="monokai", line_numbers=False))
+    
+    # Return PlanResult for chaining
+    return PlanResult(
+        task_graph=task_graph,
+        execution_log=orchestrator.last_execution_log,
+        success=result.success
+    )
 
 
 def _run_interactive(
@@ -264,13 +298,74 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     if args.goal:
-        try:
-            _run_plan(args.goal, understander, planner, orchestrator, args.debug, auto_confirm=True)
-            return 0
-        except PlanningError as exc:
-            console.print(f"[red]Planning failed: {exc}[/red]")
-            return 1
+        # Initialize chain context
+        chain = ChainContext()
+        
+        # Build goal list
+        all_goals = [args.goal]
+        if args.then_goals:
+            all_goals.extend(args.then_goals)
+        
+        # Execute all goals in the chain
+        for i, goal in enumerate(all_goals):
+            if len(all_goals) > 1:
+                console.print(f"\n[bold]Goal {i+1}/{len(all_goals)}:[/bold] {goal}")
+            
+            try:
+                result = _run_plan(
+                    goal, understander, planner,
+                    orchestrator, args.debug,
+                    auto_confirm=True,
+                    chain_context=chain if not chain.is_empty else None
+                )
+                chain.add(
+                    goal=goal,
+                    task_graph=result.task_graph,
+                    execution_log=result.execution_log,
+                    success=result.success
+                )
+            except PlanningError as exc:
+                console.print(f"[red]Planning failed: {exc}[/red]")
+                # Continue to next goal even if current one fails
+                continue
+        
+        # Interactive mode after --then goals
+        if args.interactive:
+            while True:
+                try:
+                    next_goal = console.input(
+                        "\n[dim]Chain another goal? "
+                        "(Enter to exit)[/dim] "
+                    ).strip()
+                except (KeyboardInterrupt, EOFError):
+                    break
+                if not next_goal:
+                    break
+                
+                try:
+                    result = _run_plan(
+                        next_goal, understander, planner,
+                        orchestrator, args.debug,
+                        auto_confirm=True,
+                        chain_context=chain
+                    )
+                    chain.add(
+                        goal=next_goal,
+                        task_graph=result.task_graph,
+                        execution_log=result.execution_log,
+                        success=result.success
+                    )
+                except PlanningError as exc:
+                    console.print(f"[red]Planning failed: {exc}[/red]")
+                    continue
+        
+        # Show chain summary if more than one goal
+        if len(chain.goals) > 1:
+            console.print(f"\n[bold]Chain complete:[/bold] {chain.summary()}")
+        
+        return 0
 
+    # No goal provided, run interactive mode
     _run_interactive(understander, planner, orchestrator, args.debug)
     return 0
 

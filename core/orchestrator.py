@@ -37,6 +37,7 @@ class Orchestrator:
         self.router = ExecutionRouter()
         self.verifier = Verifier()
         self.reflector = Reflector()
+        self._last_execution_log = []
 
     def run(self, task_graph: TaskGraph, progress_callback=None) -> OrchestratorResult:
         """Run the orchestration loop for a single task graph."""
@@ -193,6 +194,9 @@ class Orchestrator:
 
         logger.info("Orchestration finished: {}", message)
 
+        # Store execution log for chain context
+        self._last_execution_log = execution_log.copy()
+
         return OrchestratorResult(
             success=success,
             steps_completed=steps_completed,
@@ -202,6 +206,10 @@ class Orchestrator:
             message=message,
             execution_log=execution_log,
         )
+
+    @property
+    def last_execution_log(self) -> list:
+        return self._last_execution_log
 
     def _log_step_attempt(
         self,

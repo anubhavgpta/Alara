@@ -48,7 +48,7 @@ class Planner:
 
         logger.info("Planner initialized successfully with model={}", self.model_name)
 
-    def plan(self, goal_context: GoalContext, memory_context: MemoryContext | None = None, code_context: str | None = None) -> TaskGraph:
+    def plan(self, goal_context: GoalContext, memory_context: MemoryContext | None = None, code_context: str | None = None, chain_context: str | None = None) -> TaskGraph:
         logger.info(
             "Planning started | goal='{}' | complexity={}",
             goal_context.goal,
@@ -65,7 +65,7 @@ class Planner:
             else:
                 logger.warning("Pass 1 failed — falling back to single-pass planning")
 
-        user_message = self._build_user_message(goal_context, memory_context, code_context, approach_context)
+        user_message = self._build_user_message(goal_context, memory_context, code_context, approach_context, chain_context)
         raw_response = self._call_gemini(user_message)
         parsed_steps = self._parse_response(raw_response)
 
@@ -347,7 +347,7 @@ class Planner:
 
         return steps
 
-    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None, code_context: str | None = None, approach_context: str | None = None) -> str:
+    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None, code_context: str | None = None, approach_context: str | None = None, chain_context: str | None = None) -> str:
         message = (
             f"Platform: Windows 10/11\n"
             f"Shell: PowerShell\n"
@@ -392,6 +392,10 @@ class Planner:
                 if last_paths_text != "Last executed paths:\n":  # Only add if we found paths
                     message += f"\n{last_paths_text}\n"
         
+        # Add chain context if provided
+        if chain_context and chain_context.strip():
+            message += f"\n{chain_context}\n"
+        
         # Add approach context if provided (Pass 1 output)
         if approach_context and approach_context.strip():
             message += f"\n=== APPROACH CONTEXT (from Pass 1 analysis) ===\n\n"
@@ -417,6 +421,7 @@ class Planner:
             "3. Account for each identified risk with either a verification step or a fallback_strategy\n"
             "4. Generate at least the estimated_steps count if the approach warrants it\n"
             "5. If the approach has multiple phases, ensure steps are ordered to respect phase dependencies\n\n"
+            "IMPORTANT: If a CHAIN CONTEXT is included showing previously completed goals in this session, use the paths and outputs from prior goals when relevant — do not recreate work that was already done. If a prior goal created a directory or file that this goal needs, use that exact path.\n\n"
             "STEP GENERATION RULES:\n\n"
             "- NEVER generate a step whose sole purpose is to check whether a path or resource exists before creating it. Use create_directory and create_file directly — they are idempotent and handle the \"already exists\" case gracefully. A check_path_exists step as a guard is always wrong because it will fail when the path does not yet exist, causing unnecessary retries.\n\n"
             "- NEVER generate steps that start a long-running server process (e.g. uvicorn, npm start, python manage.py runserver). These block execution and cannot be verified. Stop the plan at \"project is built and ready to run.\"\n\n"
