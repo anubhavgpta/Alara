@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-import google.generativeai as genai
+from google import genai
 from loguru import logger
 
 from alara.schemas.goal import GoalContext
@@ -29,8 +29,7 @@ class GoalUnderstander:
             return
 
         try:
-            genai.configure(api_key=api_key)
-            self._model = genai.GenerativeModel(self.model_name)
+            self._client = genai.Client(api_key=api_key)
             logger.info(
                 "GoalUnderstander initialized successfully with model={}",
                 self.model_name,
@@ -41,10 +40,10 @@ class GoalUnderstander:
                 exc,
             )
             self._disabled = True
-            self._model = None
+            self._client = None
 
     def understand(self, raw_input: str) -> GoalContext:
-        if self._disabled or self._model is None:
+        if self._disabled or self._client is None:
             logger.warning(
                 "Goal understanding is disabled; returning fallback GoalContext.from_raw."
             )
@@ -83,20 +82,18 @@ class GoalUnderstander:
 
     def _generate_content(self, raw_input: str):
         try:
-            return self._model.generate_content(
-                raw_input,
-                generation_config={"temperature": 0.1},
-                system_instruction=self.system_prompt,
+            response = self._client.models.generate_content(
+                model=self.model_name,
+                contents=raw_input,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=self.system_prompt,
+                    temperature=0.1
+                )
             )
-        except TypeError:
-            model = genai.GenerativeModel(
-                self.model_name,
-                system_instruction=self.system_prompt,
-            )
-            return model.generate_content(
-                raw_input,
-                generation_config={"temperature": 0.1},
-            )
+            return response
+        except Exception as exc:
+            logger.error("GoalUnderstander API call failed: {}", exc)
+            raise
 
     def _strip_fences(self, text: str) -> str:
         body = text.strip()

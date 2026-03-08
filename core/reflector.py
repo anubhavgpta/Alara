@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 from loguru import logger
 
 from alara.capabilities.base import CapabilityResult
@@ -30,8 +30,8 @@ class Reflector:
             raise EnvironmentError(
                 "GEMINI_API_KEY environment variable is required for reflection functionality"
             )
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-2.5-flash")
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     def reflect(
         self,
@@ -50,9 +50,10 @@ class Reflector:
                 original_goal, task_graph, failed_step, capability_result, verification_result, attempt_number
             )
             
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
                     temperature=0.3,
                     max_output_tokens=2048,
                 )

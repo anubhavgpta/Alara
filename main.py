@@ -26,7 +26,7 @@ from alara.schemas.goal import GoalContext
 from alara.schemas.task_graph import StepStatus, TaskGraph
 
 
-VERSION = "v0.2.0"
+VERSION = "v0.3.0"
 console = Console()
 
 

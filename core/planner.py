@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 from loguru import logger
 
 from alara.schemas.goal import GoalContext
@@ -35,16 +35,12 @@ class Planner:
                 "https://aistudio.google.com and add it to .env"
             )
 
-        self.model_name = "gemini-2.5-flash"
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.system_prompt = self._build_system_prompt()
         self.last_raw_response: str | None = None
         self._last_approach_response: str | None = None
 
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(
-            self.model_name, 
-            system_instruction=self.system_prompt
-        )
+        self.client = genai.Client(api_key=api_key)
 
         logger.info("Planner initialized successfully with model={}", self.model_name)
 
@@ -222,15 +218,15 @@ class Planner:
     def _generate_content_for_approach(self, message: str, system_prompt: str) -> str:
         """Generate content for Pass 1 with approach-specific settings."""
         try:
-            logger.debug("Pass 1: Creating model with system instruction")
-            approach_model = genai.GenerativeModel(
-                self.model_name, 
-                system_instruction=system_prompt
-            )
             logger.debug("Pass 1: Generating content with message length: {}", len(message))
-            response = approach_model.generate_content(
-                message,
-                generation_config={"temperature": 0.3, "max_output_tokens": 4096},
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=message,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.3,
+                    max_output_tokens=4096
+                )
             )
             text = (getattr(response, "text", None) or "").strip()
             logger.debug("Pass 1: Got response length: {}", len(text))
@@ -274,24 +270,14 @@ class Planner:
 
     def _generate_content(self, message: str) -> str:
         try:
-            response = self.model.generate_content(
-                message,
-                generation_config={"temperature": 0.2},
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=message,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=self.system_prompt,
+                    temperature=0.2
+                )
             )
-        except TypeError:
-            # Fallback: create model with system instruction if the main model fails
-            try:
-                fallback_model = genai.GenerativeModel(
-                    self.model_name,
-                    system_instruction=self.system_prompt
-                )
-                response = fallback_model.generate_content(
-                    message,
-                    generation_config={"temperature": 0.2},
-                )
-            except Exception as exc:
-                logger.error("Fallback Gemini API call failed: {}", exc)
-                raise PlanningError(f"Fallback Gemini API call failed: {exc}", cause=exc) from exc
         except Exception as exc:
             logger.error("Gemini API call failed: {}", exc)
             raise PlanningError(f"Gemini API call failed: {exc}", cause=exc) from exc
