@@ -357,16 +357,60 @@ class PreferenceMemory:
             if step.step_type.value == "filesystem":
                 for param_value in step.params.values():
                     if isinstance(param_value, str) and Path(param_value).is_absolute():
+                        # Apply normalization to get directory path instead of file path
+                        raw_path = param_value
+                        p = Path(raw_path)
+                        
+                        # If the path points to a file, use the parent directory instead
+                        if p.suffix:
+                            normalized_path = str(p.parent).replace("\\", "/")
+                        else:
+                            normalized_path = str(p).replace("\\", "/")
+                        
                         # Check if any goal word matches part of this path
-                        path_parts = Path(param_value).parts
+                        path_parts = Path(normalized_path).parts
                         for word in goal_words:
                             if len(word) > 3 and word in [p.lower() for p in path_parts]:
-                                # Store as alias
+                                # Store as alias using best matching path segment
                                 alias = f"{word} folder"
+                                best_path = self._best_alias_path(word, Path(raw_path))
                                 existing = self.get_path_alias(alias)
-                                if existing is None or existing != param_value:
-                                    self.set_path_alias(alias, param_value)
-                                    logger.debug("Inferred path alias: {} -> {}", alias, param_value)
+                                if existing is None or existing != best_path:
+                                    self.set_path_alias(alias, best_path)
+                                    logger.debug("Inferred path alias: {} -> {}", alias, best_path)
+    
+    def _best_alias_path(self, noun: str, full_path: Path) -> str:
+        """
+        Given a noun like 'documents' and a full path
+        like .../Documents/testapi/main.py, return
+        the most relevant directory segment.
+        
+        Rules in order:
+        1. If noun matches full_path.name (case
+           insensitive), return str(full_path.parent)
+           if it's a file, else str(full_path)
+        2. Walk the path parts and find the part
+           that most closely matches the noun.
+           Return the path up to and including that
+           part.
+        3. If no part matches, return the parent
+           directory of the full path.
+        """
+        noun_lower = noun.lower().strip()
+        parts = full_path.parts
+        
+        # Check each path segment
+        for i, part in enumerate(parts):
+            if noun_lower in part.lower():
+                # Return path up to this segment
+                matched = Path(*parts[:i+1])
+                return str(matched).replace("\\", "/")
+        
+        # No match — fall back to parent if file,
+        # or path itself if directory
+        if full_path.suffix:
+            return str(full_path.parent).replace("\\", "/")
+        return str(full_path).replace("\\", "/")
     
     def _infer_tool_preferences(self, task_graph: TaskGraph) -> None:
         """Extract tool preferences from CLI steps."""
