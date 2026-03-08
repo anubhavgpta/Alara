@@ -38,9 +38,13 @@ class Planner:
         self.model_name = "gemini-2.5-flash"
         self.system_prompt = self._build_system_prompt()
         self.last_raw_response: str | None = None
+        self._last_approach_response: str | None = None
 
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(self.model_name)
+        self.model = genai.GenerativeModel(
+            self.model_name, 
+            system_instruction=self.system_prompt
+        )
 
         logger.info("Planner initialized successfully with model={}", self.model_name)
 
@@ -51,7 +55,17 @@ class Planner:
             goal_context.estimated_complexity,
         )
 
-        user_message = self._build_user_message(goal_context, memory_context, code_context)
+        approach_context = ""
+        
+        if goal_context.estimated_complexity == "complex":
+            logger.info("Complex goal detected — running two-pass planning")
+            approach_context = self._build_approach(goal_context, memory_context)
+            if approach_context:
+                logger.debug(f"Pass 1 approach built: {len(approach_context)} chars")
+            else:
+                logger.warning("Pass 1 failed — falling back to single-pass planning")
+
+        user_message = self._build_user_message(goal_context, memory_context, code_context, approach_context)
         raw_response = self._call_gemini(user_message)
         parsed_steps = self._parse_response(raw_response)
 
@@ -114,6 +128,121 @@ class Planner:
         )
         return task_graph
 
+    @property
+    def last_approach_response(self) -> str | None:
+        return self._last_approach_response
+
+    def _build_approach(self, goal_context: GoalContext, memory_context: MemoryContext | None) -> str:
+        """Run Pass 1 for complex goals to generate a structured approach outline."""
+        try:
+            logger.debug("Starting Pass 1 approach building")
+            
+            # Build Pass 1 system prompt
+            approach_system_prompt = (
+                "You are a senior software engineer planning how to accomplish a complex goal on a Windows machine.\n\n"
+                "Your job is to think through the approach and produce a structured outline that will guide step generation.\n\n"
+                "STEP GENERATION RULES:\n\n"
+                "- NEVER generate guard-check steps (check_path_exists before create)\n"
+                "- NEVER generate server start steps (uvicorn, npm start)\n"
+                "- NEVER generate HTTP test steps (curl requests)\n"
+                "- Final step should be create_file or pip install\n\n"
+                "OPERATION RULES:\n\n"
+                "- The operation \"write_file\" does not exist. NEVER use it.\n\n"
+                "- To create a new file with content, use step_type=\"filesystem\", operation=\"create_file\" with a \"content\" param.\n\n"
+                "- To overwrite an existing file with new content, use step_type=\"filesystem\", operation=\"create_file\" — it overwrites if the file already exists.\n\n"
+                "- To append to a file, use step_type=\"code\", operation=\"append_to_file\".\n\n"
+                "- To make surgical edits to a file, use step_type=\"code\", operation=\"edit_file\" with old_content and new_content params.\n\n"
+                "- Never invent operation names not in this list:\n"
+                "  filesystem: create_directory, create_file, delete_file, move_file, copy_file, check_path_exists, list_directory\n"
+                "  cli: run_command\n"
+                "  code: read_file, read_lines, analyze_structure, edit_file, append_to_file, insert_after_line, summarize_file, scan_project, check_contains\n\n"
+                "For the given goal, produce a JSON object with these fields. Keep descriptions brief:\n\n"
+                "{\n"
+                "  \"goal_restatement\": \"brief restatement\",\n"
+                "  \"approach_summary\": \"1-2 sentence description\",\n"
+                "  \"phases\": [\n"
+                "    {\n"
+                "      \"phase\": \"Phase name\",\n"
+                "      \"purpose\": \"What this phase accomplishes\",\n"
+                "      \"key_operations\": [\"op1\", \"op2\"],\n"
+                "      \"dependencies\": [\"what must be true\"],\n"
+                "      \"risks\": [\"what could go wrong\"]\n"
+                "    }\n"
+                "  ],\n"
+                "  \"critical_paths\": [\"absolute path 1\", \"absolute path 2\"],\n"
+                "  \"assumptions\": [\"assumption 1\", \"assumption 2\"],\n"
+                "  \"estimated_steps\": number\n"
+                "}\n\n"
+                "Use Windows platform context. All paths must be absolute. Respond with JSON only. No markdown."
+            )
+            logger.debug("Pass 1: System prompt built, length: {}", len(approach_system_prompt))
+            
+            # Build Pass 1 user message
+            base_message = self._build_user_message(goal_context, memory_context)
+            approach_user_message = f"Plan the approach for this goal:\n\n{base_message}"
+            logger.debug("Pass 1: User message built, length: {}", len(approach_user_message))
+            
+            # Call Gemini for Pass 1
+            response = self._generate_content_for_approach(approach_user_message, approach_system_prompt)
+            self._last_approach_response = response
+            logger.debug("Pass 1: Got response, storing it")
+            
+            # Validate JSON
+            try:
+                # Handle markdown code fences like the main parser does
+                response_text = response.strip()
+                if response_text.startswith("```"):
+                    lines = response_text.splitlines()
+                    if lines and lines[0].strip().startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    response_text = "\n".join(lines).strip()
+                
+                approach_data = json.loads(response_text)
+                logger.debug("Pass 1: JSON parsed successfully")
+                
+                # Log warning if estimated_steps > 15
+                if isinstance(approach_data.get("estimated_steps"), int) and approach_data["estimated_steps"] > 15:
+                    logger.warning(
+                        "Complex goal may exceed single TaskGraph capacity — consider goal chaining"
+                    )
+                
+                logger.debug("Pass 1: Approach building completed successfully")
+                return response
+            except json.JSONDecodeError as exc:
+                logger.warning(f"Pass 1 failed to parse JSON: {exc}")
+                logger.debug("Pass 1: Raw response was: {}", repr(response))
+                return ""
+                
+        except Exception as exc:
+            logger.warning(f"Pass 1 failed: {exc}")
+            return ""
+
+    def _generate_content_for_approach(self, message: str, system_prompt: str) -> str:
+        """Generate content for Pass 1 with approach-specific settings."""
+        try:
+            logger.debug("Pass 1: Creating model with system instruction")
+            approach_model = genai.GenerativeModel(
+                self.model_name, 
+                system_instruction=system_prompt
+            )
+            logger.debug("Pass 1: Generating content with message length: {}", len(message))
+            response = approach_model.generate_content(
+                message,
+                generation_config={"temperature": 0.3, "max_output_tokens": 4096},
+            )
+            text = (getattr(response, "text", None) or "").strip()
+            logger.debug("Pass 1: Got response length: {}", len(text))
+            if not text:
+                exc = ValueError("Pass 1 Gemini returned an empty response")
+                logger.error("Pass 1 Gemini returned an empty response")
+                raise PlanningError("Pass 1 Gemini returned an empty response", cause=exc)
+            return text
+        except Exception as exc:
+            logger.error("Pass 1 Gemini API call failed: {}", exc)
+            raise PlanningError(f"Pass 1 Gemini API call failed: {exc}", cause=exc) from exc
+
     def _call_gemini(self, user_message: str) -> str:
         retry_suffix = (
             "\n\nYour previous response was not valid JSON. Return ONLY the JSON object. "
@@ -148,20 +277,21 @@ class Planner:
             response = self.model.generate_content(
                 message,
                 generation_config={"temperature": 0.2},
-                system_instruction=self.system_prompt,
             )
         except TypeError:
+            # Fallback: create model with system instruction if the main model fails
             try:
-                model = genai.GenerativeModel(
-                    self.model_name, system_instruction=self.system_prompt
+                fallback_model = genai.GenerativeModel(
+                    self.model_name,
+                    system_instruction=self.system_prompt
                 )
-                response = model.generate_content(
+                response = fallback_model.generate_content(
                     message,
                     generation_config={"temperature": 0.2},
                 )
             except Exception as exc:
-                logger.error("Gemini API call failed: {}", exc)
-                raise PlanningError(f"Gemini API call failed: {exc}", cause=exc) from exc
+                logger.error("Fallback Gemini API call failed: {}", exc)
+                raise PlanningError(f"Fallback Gemini API call failed: {exc}", cause=exc) from exc
         except Exception as exc:
             logger.error("Gemini API call failed: {}", exc)
             raise PlanningError(f"Gemini API call failed: {exc}", cause=exc) from exc
@@ -217,7 +347,7 @@ class Planner:
 
         return steps
 
-    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None, code_context: str | None = None) -> str:
+    def _build_user_message(self, goal_context: GoalContext, memory_context: MemoryContext | None, code_context: str | None = None, approach_context: str | None = None) -> str:
         message = (
             f"Platform: Windows 10/11\n"
             f"Shell: PowerShell\n"
@@ -262,6 +392,15 @@ class Planner:
                 if last_paths_text != "Last executed paths:\n":  # Only add if we found paths
                     message += f"\n{last_paths_text}\n"
         
+        # Add approach context if provided (Pass 1 output)
+        if approach_context and approach_context.strip():
+            message += f"\n=== APPROACH CONTEXT (from Pass 1 analysis) ===\n\n"
+            message += f"This goal was analyzed in a prior planning pass. "
+            message += f"Use the following structured approach to guide your step generation. "
+            message += f"Follow the phases, use the critical paths exactly as specified, and account for the identified risks.\n\n"
+            message += f"{approach_context}\n\n"
+            message += f"=== END APPROACH CONTEXT ===\n"
+        
         # Add code context if provided
         if code_context and code_context.strip():
             message += f"\n{code_context}\n"
@@ -272,6 +411,27 @@ class Planner:
         return (
             "You are ALARA's planning engine. Analyze the goal and produce atomic, executable steps only.\n"
             "Atomic means each step does exactly one thing. Do not combine multiple actions in one step.\n\n"
+            "IMPORTANT: An APPROACH CONTEXT is included in the user message. This was produced by a prior analysis pass. You MUST:\n"
+            "1. Follow the phases described in the approach\n"
+            "2. Use the exact critical_paths listed — do not invent alternative paths\n"
+            "3. Account for each identified risk with either a verification step or a fallback_strategy\n"
+            "4. Generate at least the estimated_steps count if the approach warrants it\n"
+            "5. If the approach has multiple phases, ensure steps are ordered to respect phase dependencies\n\n"
+            "STEP GENERATION RULES:\n\n"
+            "- NEVER generate a step whose sole purpose is to check whether a path or resource exists before creating it. Use create_directory and create_file directly — they are idempotent and handle the \"already exists\" case gracefully. A check_path_exists step as a guard is always wrong because it will fail when the path does not yet exist, causing unnecessary retries.\n\n"
+            "- NEVER generate steps that start a long-running server process (e.g. uvicorn, npm start, python manage.py runserver). These block execution and cannot be verified. Stop the plan at \"project is built and ready to run.\"\n\n"
+            "- NEVER generate steps that test a running server with curl or HTTP requests. These require a live server and dynamic values (tokens, IDs) that cannot be known at planning time. Stop at \"project files are complete.\"\n\n"
+            "- The final step of any scaffold plan should be a create_file or run_command (pip install or pip freeze) — never a server start or HTTP test.\n\n"
+            "OPERATION RULES:\n\n"
+            "- The operation \"write_file\" does not exist. NEVER use it.\n\n"
+            "- To create a new file with content, use step_type=\"filesystem\", operation=\"create_file\" with a \"content\" param.\n\n"
+            "- To overwrite an existing file with new content, use step_type=\"filesystem\", operation=\"create_file\" — it overwrites if the file already exists.\n\n"
+            "- To append to a file, use step_type=\"code\", operation=\"append_to_file\".\n\n"
+            "- To make surgical edits to a file, use step_type=\"code\", operation=\"edit_file\" with old_content and new_content params.\n\n"
+            "- Never invent operation names not in this list:\n"
+            "  filesystem: create_directory, create_file, delete_file, move_file, copy_file, check_path_exists, list_directory\n"
+            "  cli: run_command\n"
+            "  code: read_file, read_lines, analyze_structure, edit_file, append_to_file, insert_after_line, summarize_file, scan_project, check_contains\n\n"
             "Only use these operations:\n"
             "Filesystem:\n"
             "  create_directory  params: { path }\n"

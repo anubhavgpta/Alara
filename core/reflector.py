@@ -61,8 +61,19 @@ class Reflector:
             raw_response = response.text.strip()
             logger.debug("Raw reflection response: {}", raw_response)
             
+            # Strip markdown code fences before parsing
+            raw = raw_response
+            
+            # Strip markdown code fences
+            if raw.startswith("```"):
+                # Remove opening fence (```json or ```)
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+                # Remove closing fence
+                if raw.endswith("```"):
+                    raw = raw[:-3].strip()
+            
             # JSON repair step before parsing
-            text = raw_response
+            text = raw
             
             # If response ends mid-string, close it
             if text.count('"') % 2 != 0:
@@ -76,24 +87,15 @@ class Reflector:
             
             # Parse JSON with error handling
             try:
-                parsed = json.loads(text)
+                reflection = json.loads(text)
             except json.JSONDecodeError as e:
                 logger.error("Failed to parse reflection JSON: {}", e)
                 # Fall back to escalate if repair fails
                 return ReflectionResult(action="escalate", reason=f"JSON parsing failed: {e}")
             
-            # Parse response with fence stripping
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-            
-            parsed = json.loads(text)
-            
-            action = parsed.get("action", "escalate")
-            reason = parsed.get("reason", "No reason provided")
-            modified_step_data = parsed.get("modified_step")
+            action = reflection.get("action", "escalate")
+            reason = reflection.get("reason", "No reason provided")
+            modified_step_data = reflection.get("modified_step")
             
             if action == "retry" and modified_step_data:
                 # Create new step preserving original metadata

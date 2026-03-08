@@ -195,6 +195,15 @@ def _run_plan(
         if planner.last_raw_response:
             rprint("[bold bright_magenta]Raw Gemini response:[/bold bright_magenta]")
             console.print(Syntax(planner.last_raw_response, "json", theme="monokai", line_numbers=False))
+        
+        if planner.last_approach_response:
+            rprint("\n[bold]Pass 1 Approach:[/bold]")
+            try:
+                approach_data = json.loads(planner.last_approach_response)
+                console.print_json(json.dumps(approach_data, indent=2))
+            except Exception:
+                console.print(planner.last_approach_response)
+        
         console.print(
             f"[dim]Debug: steps={len(task_graph.steps)} | created_at={task_graph.created_at}[/dim]"
         )
