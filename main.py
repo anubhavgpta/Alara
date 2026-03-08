@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from typing import Optional
 
 from dotenv import load_dotenv
+from loguru import logger
 from rich import print as rprint
 from rich.console import Console
 from rich.panel import Panel
@@ -24,10 +26,79 @@ from alara.core.planner import Planner, PlanningError
 from alara.memory import MemoryManager
 from alara.schemas.goal import GoalContext
 from alara.schemas.task_graph import StepStatus, TaskGraph
+from alara.utils.paths import is_setup_complete, get_log_path
 
 
 VERSION = "v0.3.0"
 console = Console()
+
+
+def _show_home_screen() -> None:
+    """Display the ALARA home screen."""
+    try:
+        from alara.utils.paths import get_profile_path, get_config_path
+        
+        # Load profile and config
+        profile = {}
+        config = {}
+        
+        try:
+            with open(get_profile_path()) as f:
+                profile = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+            
+        try:
+            with open(get_config_path()) as f:
+                config = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        
+        # Get memory stats
+        memory = MemoryManager.get_instance()
+        health = memory.health_check()
+        
+        session_count = health.get("session_goals", 0)
+        preference_count = health.get("total_preferences", 0)
+        
+        # Build home panel
+        home_text = Text()
+        home_text.append(f"ALARA", style="bold #9B59FF")
+        home_text.append(f"{' ' * 20}v{VERSION}\n", style="dim")
+        
+        name = profile.get("preferred_name", profile.get("name", "User"))
+        home_text.append(f"Hey {name} 👋\n\n", style="bold")
+        
+        model = config.get("model", "unknown")
+        provider = config.get("provider", "unknown")
+        home_text.append(f"Model    {model}\n")
+        home_text.append(f"Memory   {session_count} sessions · {preference_count} preferences\n")
+        home_text.append("Status   Ready", style="green")
+        
+        console.print(Panel(
+            home_text,
+            border_style="#9B59FF",
+            padding=(1, 2)
+        ))
+        
+        # Show recent goals
+        if session_count > 0:
+            console.print("\nRecent goals:")
+            console.print("─" * 20)
+            
+            recent_goals = memory.session.get_recent(limit=3)
+            for goal in recent_goals:
+                console.print(f"• {goal.goal[:60]}{'...' if len(goal.goal) > 60 else ''}")
+        
+        console.print("\n❯ What would you like to do?")
+        
+    except Exception as e:
+        # Fallback home screen if anything fails
+        console.print(Panel(
+            Text.from_markup(f"ALARA v{VERSION}\n\nHey User 👋\n\nStatus: Ready", style="bold #9B59FF"),
+            border_style="#9B59FF"
+        ))
+        console.print("\n❯ What would you like to do?")
 
 
 def _print_banner() -> None:
@@ -254,11 +325,12 @@ def _run_interactive(
     orchestrator: Orchestrator,
     debug: bool,
 ) -> None:
-    console.print("Alara is ready. Describe what you want to accomplish.")
-    console.print("Type 'exit' or press Ctrl+C to quit.")
+    """Run interactive mode with home screen."""
     while True:
+        _show_home_screen()
+        
         try:
-            raw_input = input("> ").strip()
+            raw_input = input("❯ ").strip()
         except KeyboardInterrupt:
             console.print("\nShutting down.")
             break
@@ -275,10 +347,31 @@ def _run_interactive(
             console.print(f"[red]Planning failed: {exc}[/red]")
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def cli_entry() -> int:
+    """Entry point for `alara` CLI command."""
     load_dotenv()
     
-    # Initialize MemoryManager once, after load_dotenv
+    # Setup logging to use ~/.alara/alara.log
+    logger.remove()
+    logger.add(
+        str(get_log_path()),
+        rotation="10 MB",
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+    )
+    
+    # Check if setup is complete
+    if not is_setup_complete():
+        console.print("[yellow]Alara is not set up yet.[/yellow]")
+        from alara.setup import run_setup
+        run_setup()
+        return 0
+    
+    return main()
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    # Initialize MemoryManager once
     memory = MemoryManager.get_instance()
     
     parser = _build_parser()

@@ -28,14 +28,37 @@ class Planner:
     """Generate a task graph from a parsed GoalContext."""
 
     def __init__(self) -> None:
+        # Try environment variable first, then config file
         api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            try:
+                from alara.utils.paths import get_config_path
+                import json
+                with open(get_config_path()) as f:
+                    config = json.load(f)
+                api_key = config.get("api_key")
+            except (FileNotFoundError, json.JSONDecodeError, ImportError):
+                pass
+        
         if not api_key:
             raise EnvironmentError(
                 "GEMINI_API_KEY not set. Get a free key at "
-                "https://aistudio.google.com and add it to .env"
+                "https://aistudio.google.com and add it to .env or run alara-setup"
             )
 
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        # Try environment variable for model, then config
+        model_name = os.getenv("GEMINI_MODEL")
+        if not model_name:
+            try:
+                from alara.utils.paths import get_config_path
+                import json
+                with open(get_config_path()) as f:
+                    config = json.load(f)
+                model_name = config.get("model", "gemini-2.5-flash")
+            except (FileNotFoundError, json.JSONDecodeError, ImportError):
+                model_name = "gemini-2.5-flash"
+        
+        self.model_name = model_name
         self.system_prompt = self._build_system_prompt()
         self.last_raw_response: str | None = None
         self._last_approach_response: str | None = None

@@ -33,8 +33,8 @@ class DatabaseManager:
     
     def __init__(self) -> None:
         """Initialize the database manager."""
-        db_path = os.getenv("DB_PATH", "alara.db")
-        self._db_path = Path(db_path)
+        from alara.utils.paths import get_db_path
+        self._db_path = get_db_path()
         self._initialize()
         logger.info("DatabaseManager initialized with path: {}", self._db_path)
     

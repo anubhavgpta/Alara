@@ -20,7 +20,18 @@ class GoalUnderstander:
         self._disabled = False
         self._model = None
 
+        # Try environment variable first, then config file
         api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            try:
+                from alara.utils.paths import get_config_path
+                import json
+                with open(get_config_path()) as f:
+                    config = json.load(f)
+                api_key = config.get("api_key")
+            except (FileNotFoundError, json.JSONDecodeError, ImportError):
+                pass
+        
         if not api_key:
             logger.warning(
                 "GEMINI_API_KEY not set. Goal understanding disabled; falling back to GoalContext.from_raw."

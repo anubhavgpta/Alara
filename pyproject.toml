@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alara"
+version = "0.3.0"
+description = "Ambient Language & Reasoning Assistant — personal AI agent for Windows"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai",
+    "rich",
+    "loguru",
+    "python-dotenv",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+alara = "alara.main:cli_entry"
+alara-setup = "alara.setup:run_setup"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["alara*"]

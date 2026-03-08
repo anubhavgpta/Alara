@@ -68,6 +68,34 @@ class MemoryManager:
         # Build summary string for Gemini injection
         summary_parts = ["MEMORY CONTEXT:\n"]
         
+        # Add user profile if available
+        try:
+            from alara.utils.paths import get_profile_path
+            import json
+            with open(get_profile_path()) as f:
+                profile = json.load(f)
+            
+            summary_parts.append("USER PROFILE:\n")
+            name = profile.get("preferred_name", profile.get("name", "User"))
+            summary_parts.append(f"Name: {name}\n")
+            
+            if "timezone" in profile:
+                summary_parts.append(f"Timezone: {profile['timezone']}\n")
+            
+            if "use_cases" in profile:
+                use_cases = ", ".join(profile["use_cases"])
+                summary_parts.append(f"Use cases: {use_cases}\n")
+            
+            if "projects_dir" in profile:
+                summary_parts.append(f"Projects directory: {profile['projects_dir']}\n")
+            
+            if "editor" in profile:
+                summary_parts.append(f"Editor: {profile['editor']}\n")
+            
+            summary_parts.append("\n")
+        except (FileNotFoundError, json.JSONDecodeError, ImportError):
+            pass  # Profile not available, continue without it
+        
         # Add known path aliases
         if known_paths:
             summary_parts.append("Known path aliases:\n")
