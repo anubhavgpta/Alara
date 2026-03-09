@@ -16,9 +16,13 @@ class CodeContextBuilder:
         """Initialize with no dependencies - stateless and reusable."""
         self.code_capability = CodeCapability()
 
-    def build(self, goal: str, working_dir: str = None) -> str:
+    def build(self, goal: str, working_dir: str = None, goal_scope: str = None) -> str:
         """Build a structured code context summary for the given goal."""
         try:
+            # Only scan if goal scope is code-related
+            if goal_scope not in ("cli", "mixed", "filesystem"):
+                return ""
+            
             # Infer project root
             project_root = self._infer_project_root(goal, working_dir)
             if not project_root or not project_root.exists():
@@ -91,19 +95,12 @@ class CodeContextBuilder:
                     if potential_dir.exists() and potential_dir.is_dir():
                         return potential_dir
         
-        # 3. Check for Python project indicators in current directory
-        current_dir = Path.cwd()
-        if self._is_python_project(current_dir):
-            return current_dir
+        # 3. Try to find a project path mentioned in the goal by checking
+        # if any known path alias points to a directory containing Python files
+        # This would require access to memory manager, but for now we skip this
+        # to avoid falling back to cwd
         
-        # 4. Look for project indicators in parent directories
-        for parent in current_dir.parents:
-            if self._is_python_project(parent):
-                return parent
-            # Don't go too far up
-            if parent == home:
-                break
-        
+        # If nothing found, return None — do not fall back to cwd
         return None
 
     def _is_python_project(self, path: Path) -> bool:

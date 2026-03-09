@@ -125,6 +125,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="After each goal, prompt for the next goal"
     )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Prune old sessions from memory database"
+    )
     return parser
 
 
@@ -209,7 +214,8 @@ def _run_plan(
     code_context_builder = CodeContextBuilder()
     code_context = code_context_builder.build(
         goal=goal_context.goal,
-        working_dir=str(goal_context.working_directory) if goal_context.working_directory else None
+        working_dir=str(goal_context.working_directory) if goal_context.working_directory else None,
+        goal_scope=goal_context.scope
     )
     if debug and code_context and code_context.strip():
         console.print("[bold bright_magenta]Code Context Summary:[/bold bright_magenta]")
@@ -379,6 +385,17 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.debug:
         os.environ["DEBUG"] = "true"
+
+    # Handle prune command
+    if args.prune:
+        deleted = memory.db.prune_old_sessions(
+            keep_recent=200
+        )
+        console.print(
+            f"[green]Pruned {deleted} old sessions. "
+            f"Database compacted.[/green]"
+        )
+        return 0
 
     _print_banner()
 

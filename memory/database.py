@@ -35,8 +35,27 @@ class DatabaseManager:
         """Initialize the database manager."""
         from alara.utils.paths import get_db_path
         self._db_path = get_db_path()
+        self._migrate_legacy_db()
         self._initialize()
         logger.info("DatabaseManager initialized with path: {}", self._db_path)
+    
+    def _migrate_legacy_db(self) -> None:
+        """
+        One-time migration: move alara.db from cwd
+        to ~/.alara/alara.db if the new path is empty
+        and the old path exists.
+        """
+        from pathlib import Path
+        import shutil
+        
+        new_path = self._db_path
+        old_path = Path.cwd() / "alara.db"
+
+        if old_path.exists() and not new_path.exists():
+            shutil.move(str(old_path), str(new_path))
+            logger.info(
+                f"Migrated alara.db from {old_path} to {new_path}"
+            )
     
     def _initialize(self) -> None:
         """Create database and tables, run migrations if needed."""
@@ -141,6 +160,7 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_skills_scope ON skills(scope)",
             "CREATE INDEX IF NOT EXISTS idx_preferences_category ON preferences(category)",
             "CREATE INDEX IF NOT EXISTS idx_preferences_key ON preferences(key)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_preferences_category_key ON preferences(category, key)",
         ]
         
         for index_sql in indexes:
@@ -154,6 +174,34 @@ class DatabaseManager:
         # For now, we're at version 1, so no migrations needed yet
         
         logger.info("Migrations completed successfully")
+    
+    def prune_old_sessions(self, keep_recent: int = 200) -> int:
+        """
+        Delete sessions older than the most recent
+        keep_recent entries. Returns count deleted.
+
+        Keeps the most recent 200 sessions in full.
+        Anything older is deleted entirely.
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            DELETE FROM sessions
+            WHERE id NOT IN (
+                SELECT id FROM sessions
+                ORDER BY created_at DESC
+                LIMIT ?
+            )
+        """, (keep_recent,))
+        deleted = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        # VACUUM in a separate connection
+        vacuum_conn = self._get_connection()
+        vacuum_conn.execute("VACUUM")
+        vacuum_conn.close()
+        
+        return deleted
     
     def _get_connection(self) -> sqlite3.Connection:
         """Get a new database connection with proper settings."""

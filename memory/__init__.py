@@ -38,7 +38,26 @@ class MemoryManager:
         self.preferences = PreferenceMemory()
         self.skills = SkillMemory()
         self.db = DatabaseManager.get_instance()
+        self._auto_prune()
         logger.info("MemoryManager initialized")
+    
+    def _auto_prune(self) -> None:
+        """
+        Auto-prune if session count exceeds 500.
+        Keeps most recent 200. Runs silently.
+        """
+        try:
+            health = self.health_check()
+            count = health["database"]["table_counts"]["sessions"]
+            if count > 500:
+                deleted = self.db.prune_old_sessions(
+                    keep_recent=200
+                )
+                logger.info(
+                    f"Auto-pruned {deleted} old sessions"
+                )
+        except Exception as e:
+            logger.warning(f"Auto-prune failed: {e}")
     
     def build_context(self, goal: str, goal_context: GoalContext) -> MemoryContext:
         """
@@ -62,8 +81,13 @@ class MemoryManager:
         tool_preferences = self.preferences.get_by_category("tool")
         relevant_preferences = path_preferences + tool_preferences
         
-        # Get known paths
-        known_paths = self.preferences.get_all_path_aliases()
+        # Get known paths (deduplicated)
+        all_aliases = self.preferences.get_all_path_aliases()
+        # Deduplicate aliases to ensure each noun key appears only once
+        known_paths = {}
+        for noun, path in all_aliases.items():
+            if noun not in known_paths:
+                known_paths[noun] = path
         
         # Build summary string for Gemini injection
         summary_parts = ["MEMORY CONTEXT:\n"]
