@@ -164,7 +164,7 @@ class MasterOrchestrator:
         - writing: creative and professional writing
         - filesystem: file and folder operations
         - browser: web browser automation
-        - comms: email, Slack, calendar via Zapier
+        - comms: email, Slack, calendar via Composio
 
         User goal: {goal}
         Goal complexity: {goal_ctx.estimated_complexity}

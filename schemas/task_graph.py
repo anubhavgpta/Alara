@@ -22,6 +22,8 @@ class StepType(str, Enum):
     VISION = "vision"
     SYSTEM = "system"
     DOCUMENT = "document"
+    BROWSER = "browser"
+    COMMS = "comms"
 
 
 class ExecutionLayer(str, Enum):
@@ -31,6 +33,8 @@ class ExecutionLayer(str, Enum):
     APP_ADAPTER = "app_adapter"
     CLI = "cli"
     VISION = "vision"
+    BROWSER = "browser"
+    COMMS = "comms"
 
 
 class StepStatus(str, Enum):

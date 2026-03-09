@@ -1,31 +1,46 @@
 from alara.agents.base import BaseAgent
-
+from alara.agents.base import AgentResult
+from alara.core.chain import ChainContext
 
 class CommsAgent(BaseAgent):
-    name = "comms"
-    description = "Sends emails, messages via Zapier"
-    capabilities = []
-
-    system_prompt = """
-    You are the Comms Agent for ALARA.
-    You specialize in communication and messaging.
-    [Zapier integration coming soon]
+    """
+    Comms Agent — coming soon.
+    Will support Gmail, Slack, Calendar,
+    Notion and more via Composio.
     """
 
-    def can_handle(self, goal: str, scope: str) -> bool:
-        comms_keywords = [
-            "email", "gmail", "send message", "slack",
-            "whatsapp", "notify", "calendar", "schedule",
-            "notion", "zapier", "webhook"
-        ]
-        
-        goal_lower = goal.lower()
-        return any(keyword in goal_lower for keyword in comms_keywords)
+    name = "comms"
+    description = (
+        "Sends emails, messages, calendar events "
+        "— coming soon"
+    )
+    capabilities = []
+    system_prompt = ""
 
-    def run(self, goal: str, chain_context=None, memory_context=None):
-        """Override run to return stub response."""
-        from alara.agents.base import AgentResult
-        
+    def can_handle(
+        self, goal: str, scope: str
+    ) -> bool:
+        keywords = [
+            "email", "gmail", "send message",
+            "slack", "whatsapp", "notify",
+            "calendar", "schedule", "meeting",
+            "invite", "notion", "task",
+            "composio", "webhook", "message me",
+            "remind me", "set a reminder",
+            "discord", "linear", "trello",
+            "send a notification", "dm me",
+        ]
+        goal_lower = goal.lower()
+        return any(
+            k in goal_lower for k in keywords
+        )
+
+    def run(
+        self,
+        goal: str,
+        chain_context: ChainContext | None = None,
+        memory_context=None
+    ) -> AgentResult:
         return AgentResult(
             agent_name=self.name,
             goal=goal,
@@ -34,5 +49,9 @@ class CommsAgent(BaseAgent):
             steps_total=0,
             key_outputs=[],
             execution_log=[],
-            error="Comms Agent requires Zapier integration — coming in next release."
+            error=(
+                "Comms agent is not yet available. "
+                "Composio integration is coming "
+                "in the next release."
+            )
         )

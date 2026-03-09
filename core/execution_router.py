@@ -16,7 +16,8 @@ from alara.schemas.task_graph import Step, StepType
 class ExecutionRouter:
     """Route plan steps to the best available capability implementation."""
 
-    def __init__(self) -> None:
+    def __init__(self, config=None) -> None:
+        self.config = config or {}
         self.filesystem = FilesystemCapability()
         self.cli = CLICapability()
         self.system = SystemCapability()
@@ -32,6 +33,14 @@ class ExecutionRouter:
             "create_markdown", "edit_markdown",
             "read_text", "edit_text"
         }
+        
+        # Browser operations set
+        self.BROWSER_OPS = {
+            "navigate", "click", "type", "scrape",
+            "screenshot", "fill_form", "submit_form",
+            "get_links", "wait_for", "extract_table",
+            "search_web"
+        }
 
     def route(self, step: Step) -> CapabilityResult:
         """Execute a single step using the capability hierarchy."""
@@ -41,6 +50,11 @@ class ExecutionRouter:
             # Route document operations directly to DocumentCapability
             if step.operation in self.DOCUMENT_OPS or step.step_type == StepType.DOCUMENT:
                 return self.document.execute(step.operation, step.params)
+            
+            # Route browser operations directly to BrowserCapability
+            if step.operation in self.BROWSER_OPS or step.step_type == StepType.BROWSER:
+                from alara.capabilities.browser import BrowserCapability
+                return BrowserCapability(self.config).execute(step.operation, step.params)
             
             # Route code operations directly to CodeCapability
             if step.step_type == StepType.CODE or self.code.supports(step.operation):
@@ -65,6 +79,10 @@ class ExecutionRouter:
 
             elif step.step_type == StepType.DOCUMENT:
                 return self.document.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.BROWSER:
+                from alara.capabilities.browser import BrowserCapability
+                return BrowserCapability(self.config).execute(step.operation, step.params)
 
             elif step.step_type == StepType.APP_ADAPTER:
                 logger.warning(

@@ -65,7 +65,7 @@ class BaseAgent:
             agent_system_prompt=self.system_prompt
         )
         self.orchestrator = Orchestrator(
-            allowed_capabilities=self.capabilities
+            config=self.config
         )
 
     def can_handle(self, goal: str,

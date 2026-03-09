@@ -266,47 +266,19 @@ class AlaraSetup:
         
     def _section_integrations(self) -> None:
         """Section 4: Third-party integrations."""
-        console.rule(f"[bold {ALARA_PURPLE}]INTEGRATIONS[/bold {ALARA_PURPLE}]")
-        
-        if Confirm.ask(
-            "Connect Zapier? (enables email, Slack, calendar, Notion, and 1000+ other apps)",
-            default=False,
-            console=console
-        ):
-            api_key = Prompt.ask(
-                "Zapier MCP API key",
-                console=console,
-                show_default=False
-            )
-            self.config["zapier_api_key"] = api_key
-            
-            services = [
-                "Gmail", "Slack", "Microsoft Outlook", "Google Calendar",
-                "Notion", "Trello", "Linear", "WhatsApp", "Discord"
-            ]
-            
-            console.print("Which services are you using?")
-            for i, service in enumerate(services, 1):
-                console.print(f"  {i}. {service}")
-            
-            selection = Prompt.ask("Services (e.g., 1,3,5 or 'all')", console=console)
-            
-            if selection.lower() == "all":
-                selected_indices = list(range(len(services)))
-            else:
-                try:
-                    selected_indices = [int(x.strip()) - 1 for x in selection.split(",")]
-                except ValueError:
-                    selected_indices = []
-            
-            self.config["zapier_services"] = [
-                services[i].lower() for i in selected_indices if 0 <= i < len(services)
-            ]
-        else:
-            self.config["zapier_api_key"] = None
-            self.config["zapier_services"] = []
-            
-        console.print()
+        console.rule(
+            "[bold #9B59FF]INTEGRATIONS[/bold #9B59FF]"
+        )
+        console.print(
+            "  Composio integration (Gmail, Slack, "
+            "Calendar, Notion) is coming in the next "
+            "release.\n",
+            style="dim white"
+        )
+
+        # Set defaults in config
+        self.config["composio_api_key"] = None
+        self.config["composio_services"] = []
         
     def _section_permissions(self) -> None:
         """Section 5: System permissions."""
@@ -416,7 +388,12 @@ class AlaraSetup:
         """Save configuration and profile files."""
         # Add version and timestamps
         self.config["version"] = "0.3.0"
+        self.config["browser_headless"] = True
         self.profile["created_at"] = datetime.now().isoformat()
+        
+        # Remove any zapier references if they exist
+        self.config.pop("zapier_api_key", None)
+        self.config.pop("zapier_services", None)
         
         # Ensure .alara directory exists
         get_alara_dir()
@@ -451,13 +428,6 @@ class AlaraSetup:
         if self.profile.get("use_cases"):
             use_cases_text = ", ".join(uc.replace("_", " ").title() for uc in self.profile["use_cases"])
             table.add_row("Use cases", use_cases_text)
-            
-        # Add integrations
-        if self.config.get("zapier_services"):
-            integrations_text = ", ".join(s.title() for s in self.config["zapier_services"][:4])
-            if len(self.config["zapier_services"]) > 4:
-                integrations_text += "..."
-            table.add_row("Integrations", integrations_text)
             
         # Add permissions
         enabled_perms = [k for k, v in self.config.get("permissions", {}).items() if v]
