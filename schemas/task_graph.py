@@ -21,6 +21,7 @@ class StepType(str, Enum):
     CODE = "code"
     VISION = "vision"
     SYSTEM = "system"
+    DOCUMENT = "document"
 
 
 class ExecutionLayer(str, Enum):

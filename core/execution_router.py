@@ -9,6 +9,7 @@ from alara.capabilities.cli import CLICapability
 from alara.capabilities.code import CodeCapability
 from alara.capabilities.filesystem import FilesystemCapability
 from alara.capabilities.system import SystemCapability
+from alara.capabilities.document import DocumentCapability
 from alara.schemas.task_graph import Step, StepType
 
 
@@ -20,12 +21,27 @@ class ExecutionRouter:
         self.cli = CLICapability()
         self.system = SystemCapability()
         self.code = CodeCapability()
+        self.document = DocumentCapability()
+        
+        # Document operations set
+        self.DOCUMENT_OPS = {
+            "create_word_doc", "edit_word_doc",
+            "read_word_doc", "create_powerpoint",
+            "edit_powerpoint", "read_powerpoint",
+            "create_pdf", "read_pdf",
+            "create_markdown", "edit_markdown",
+            "read_text", "edit_text"
+        }
 
     def route(self, step: Step) -> CapabilityResult:
         """Execute a single step using the capability hierarchy."""
         logger.debug("Routing step {} ({}) to capability", step.id, step.operation)
         
         try:
+            # Route document operations directly to DocumentCapability
+            if step.operation in self.DOCUMENT_OPS or step.step_type == StepType.DOCUMENT:
+                return self.document.execute(step.operation, step.params)
+            
             # Route code operations directly to CodeCapability
             if step.step_type == StepType.CODE or self.code.supports(step.operation):
                 return self.code.execute(step.operation, step.params)
@@ -46,6 +62,9 @@ class ExecutionRouter:
 
             elif step.step_type == StepType.SYSTEM:
                 return self.system.execute(step.operation, step.params)
+
+            elif step.step_type == StepType.DOCUMENT:
+                return self.document.execute(step.operation, step.params)
 
             elif step.step_type == StepType.APP_ADAPTER:
                 logger.warning(

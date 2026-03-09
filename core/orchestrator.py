@@ -32,8 +32,13 @@ class Orchestrator:
 
     MAX_RETRIES = 3
 
-    def __init__(self) -> None:
+    def __init__(self, allowed_capabilities: list[str] = None) -> None:
         """Initialize orchestrator dependencies."""
+        self.allowed_capabilities = \
+            allowed_capabilities or [
+                "filesystem", "cli", "code",
+                "document", "system"
+            ]
         self.router = ExecutionRouter()
         self.verifier = Verifier()
         self.reflector = Reflector()

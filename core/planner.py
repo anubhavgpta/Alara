@@ -27,43 +27,50 @@ class PlanningError(Exception):
 class Planner:
     """Generate a task graph from a parsed GoalContext."""
 
-    def __init__(self) -> None:
-        # Try environment variable first, then config file
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            try:
-                from alara.utils.paths import get_config_path
-                import json
-                with open(get_config_path()) as f:
-                    config = json.load(f)
-                api_key = config.get("api_key")
-            except (FileNotFoundError, json.JSONDecodeError, ImportError):
-                pass
+    def __init__(self, model: str = "gemini-2.5-flash", api_key: str = "", provider: str = "gemini", agent_system_prompt: str = "") -> None:
+        # Try provided parameters first, then environment variables, then config file
+        if api_key:
+            self.api_key = api_key
+        else:
+            self.api_key = os.getenv("GEMINI_API_KEY")
+            if not self.api_key:
+                try:
+                    from alara.utils.paths import get_config_path
+                    import json
+                    with open(get_config_path()) as f:
+                        config = json.load(f)
+                    self.api_key = config.get("api_key")
+                except (FileNotFoundError, json.JSONDecodeError, ImportError):
+                    pass
         
-        if not api_key:
+        if not self.api_key:
             raise EnvironmentError(
                 "GEMINI_API_KEY not set. Get a free key at "
                 "https://aistudio.google.com and add it to .env or run alara-setup"
             )
 
-        # Try environment variable for model, then config
-        model_name = os.getenv("GEMINI_MODEL")
-        if not model_name:
-            try:
-                from alara.utils.paths import get_config_path
-                import json
-                with open(get_config_path()) as f:
-                    config = json.load(f)
-                model_name = config.get("model", "gemini-2.5-flash")
-            except (FileNotFoundError, json.JSONDecodeError, ImportError):
-                model_name = "gemini-2.5-flash"
+        # Try provided model first, then environment variable, then config
+        if model and model != "gemini-2.5-flash":
+            self.model_name = model
+        else:
+            model_name = os.getenv("GEMINI_MODEL")
+            if not model_name:
+                try:
+                    from alara.utils.paths import get_config_path
+                    import json
+                    with open(get_config_path()) as f:
+                        config = json.load(f)
+                    model_name = config.get("model", "gemini-2.5-flash")
+                except (FileNotFoundError, json.JSONDecodeError, ImportError):
+                    model_name = "gemini-2.5-flash"
+            self.model_name = model_name
         
-        self.model_name = model_name
+        self.agent_system_prompt = agent_system_prompt
         self.system_prompt = self._build_system_prompt()
         self.last_raw_response: str | None = None
         self._last_approach_response: str | None = None
 
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=self.api_key)
 
         logger.info("Planner initialized successfully with model={}", self.model_name)
 
@@ -421,7 +428,18 @@ class Planner:
         return message
 
     def _build_system_prompt(self) -> str:
-        return (
+        agent_section = ""
+        if self.agent_system_prompt:
+            agent_section = f"""
+{self.agent_system_prompt}
+
+---
+PLANNING RULES (always apply):
+"""
+        else:
+            agent_section = "PLANNING RULES:\n"
+
+        return agent_section + (
             "You are ALARA's planning engine. Analyze the goal and produce atomic, executable steps only.\n"
             "Atomic means each step does exactly one thing. Do not combine multiple actions in one step.\n\n"
             "IMPORTANT: An APPROACH CONTEXT is included in the user message. This was produced by a prior analysis pass. You MUST:\n"
@@ -445,7 +463,8 @@ class Planner:
             "- Never invent operation names not in this list:\n"
             "  filesystem: create_directory, create_file, delete_file, move_file, copy_file, check_path_exists, list_directory\n"
             "  cli: run_command\n"
-            "  code: read_file, read_lines, analyze_structure, edit_file, append_to_file, insert_after_line, summarize_file, scan_project, check_contains\n\n"
+            "  code: read_file, read_lines, analyze_structure, edit_file, append_to_file, insert_after_line, summarize_file, scan_project, check_contains\n"
+            "  document: create_word_doc, edit_word_doc, read_word_doc, create_powerpoint, edit_powerpoint, read_powerpoint, create_pdf, read_pdf, create_markdown, edit_markdown, read_text, edit_text\n\n"
             "Only use these operations:\n"
             "Filesystem:\n"
             "  create_directory  params: { path }\n"
@@ -477,7 +496,20 @@ class Planner:
             "  insert_after_line params: { path, line_number, content }\n"
             "  summarize_file    params: { path, max_lines }\n"
             "  scan_project      params: { root, extensions, max_files, exclude_dirs }\n"
-            "  check_contains    params: { path, search }\n\n"
+            "  check_contains    params: { path, search }\n"
+            "Document:\n"
+            "  create_word_doc   params: { path, title, content }\n"
+            "  edit_word_doc     params: { path, instructions }\n"
+            "  read_word_doc     params: { path }\n"
+            "  create_powerpoint params: { path, title, slides }\n"
+            "  edit_powerpoint   params: { path, slide_index, title, content }\n"
+            "  read_powerpoint   params: { path }\n"
+            "  create_pdf        params: { path, title, content }\n"
+            "  read_pdf          params: { path }\n"
+            "  create_markdown   params: { path, content }\n"
+            "  edit_markdown     params: { path, content, mode }\n"
+            "  read_text         params: { path }\n"
+            "  edit_text         params: { path, content, mode }\n\n"
             "Only use these verification_method values:\n"
             "  check_path_exists\n"
             "  check_exit_code_zero\n"
@@ -589,7 +621,8 @@ class Planner:
             "- run_command -> preferred_layer: cli\n"
             "- open_app/close_app/focus_app -> preferred_layer: app_adapter\n"
             "- system operations -> preferred_layer: os_api\n"
-            "- code operations -> preferred_layer: os_api\n\n"
+            "- code operations -> preferred_layer: os_api\n"
+            "- document operations -> preferred_layer: os_api\n\n"
             "Fallback strategy:\n"
             "- If a CLI step could alternatively be done via filesystem, set fallback_strategy to \"use_filesystem\".\n"
             "- If a step is optional and failure should not block the task, set fallback_strategy to \"skip_optional\".\n"
