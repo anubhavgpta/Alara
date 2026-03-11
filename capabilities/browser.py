@@ -15,7 +15,8 @@ class BrowserCapability(BaseCapability):
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.headless = config.get("browser_headless", True)
+        # DuckDuckGo blocks headless browsers — always use headed mode for web search
+        self.headless = False
 
     def execute(self, operation: str, params: Dict[str, Any]) -> CapabilityResult:
         """Execute browser operation using Playwright sync API."""
@@ -23,14 +24,25 @@ class BrowserCapability(BaseCapability):
             browser = p.chromium.launch(headless=self.headless)
             context = browser.new_context(
                 user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; "
-                    "Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                )
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+                locale="en-US"
             )
             page = context.new_page()
             page.set_default_timeout(10000)
+            
+            # Add extra headers to look more like a real browser
+            page.set_extra_http_headers({
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1"
+            })
+            
             try:
                 result = self._dispatch(page, operation, params)
                 return CapabilityResult(success=True, output=result)
@@ -38,6 +50,18 @@ class BrowserCapability(BaseCapability):
                 return CapabilityResult(success=False, error=str(e))
             finally:
                 browser.close()
+
+    def _extract_real_url(self, ddg_url: str) -> str:
+        """Extract real URL from DuckDuckGo redirect."""
+        if 'duckduckgo.com/l/' in ddg_url:
+            try:
+                parsed = urllib.parse.urlparse(ddg_url)
+                params = urllib.parse.parse_qs(parsed.query)
+                if 'uddg' in params:
+                    return urllib.parse.unquote(params['uddg'][0])
+            except Exception:
+                pass
+        return ddg_url
 
     def _dispatch(self, page, operation: str, params: Dict[str, Any]) -> str:
         """Dispatch operation to appropriate handler."""
@@ -77,21 +101,50 @@ class BrowserCapability(BaseCapability):
         """Scrape page content."""
         url = params["url"]
         selector = params.get("selector")
-        
+
         page.goto(url)
-        
+
+        # Wait for body
+        try:
+            page.wait_for_selector(
+                "body", timeout=8000
+            )
+        except Exception:
+            pass
+
         if selector:
-            text = page.locator(selector).inner_text()
+            try:
+                text = page.locator(
+                    selector
+                ).inner_text()
+            except Exception:
+                text = page.inner_text("body")
         else:
+            # Remove noise elements before scraping
+            page.evaluate("""() => {
+                const selectors = [
+                    'nav', 'footer', 'header',
+                    'script', 'style', 'noscript',
+                    '.nav', '.footer', '.header',
+                    '.sidebar', '.advertisement',
+                    '.cookie', '.popup', '.modal'
+                ];
+                selectors.forEach(sel => {
+                    document.querySelectorAll(sel)
+                        .forEach(el => el.remove());
+                });
+            }""")
             text = page.inner_text("body")
-        
+
         # Strip excessive whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Limit to 5000 characters
-        if len(text) > 5000:
-            text = text[:5000] + "..."
-        
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r' {2,}', ' ', text)
+        text = text.strip()
+
+        # Limit to 8000 characters
+        if len(text) > 8000:
+            text = text[:8000] + "..."
+
         return text
 
     def _screenshot(self, page, params: Dict[str, Any]) -> str:
@@ -214,35 +267,132 @@ class BrowserCapability(BaseCapability):
         return f"Element {selector} found"
 
     def _search_web(self, page, params: Dict[str, Any]) -> str:
-        """Search the web."""
+        """Search the web using DuckDuckGo."""
         query = params["query"]
-        engine = params.get("engine", "google")
-        
-        if engine == "google":
-            url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
-        else:
-            # Default to Google
-            url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
-        
+
+        url = (
+            "https://html.duckduckgo.com/html/"
+            f"?q={urllib.parse.quote(query)}"
+        )
+
         page.goto(url)
+
+        # Wait a bit for the page to fully load
+        import time
+        time.sleep(2)
+
+        # Wait for results to load
+        try:
+            page.wait_for_selector(
+                ".result", timeout=10000
+            )
+        except Exception:
+            # Try alternative selector
+            try:
+                page.wait_for_selector(
+                    "div[class*='result']", timeout=5000
+                )
+            except Exception:
+                # Wait a bit more and try again
+                time.sleep(3)
+                pass
+
+        # Extract results with multiple selector attempts
+        raw_results = page.eval_on_selector_all(
+            ".result, div[class*='result'], article",
+            """els => els.slice(0, 12).map(el => {
+                // Try multiple selectors for title
+                const titleEl = el.querySelector('.result__title') || 
+                                el.querySelector('h2') || 
+                                el.querySelector('h3') || 
+                                el.querySelector('a') ||
+                                el.querySelector('[class*="title"]');
+                
+                // Try multiple selectors for snippet
+                const snippetEl = el.querySelector('.result__snippet') ||
+                                 el.querySelector('[class*="snippet"]') ||
+                                 el.querySelector('[class*="description"]') ||
+                                 el.querySelector('p');
+                
+                // Try multiple selectors for URL
+                const urlEl = el.querySelector('.result__url') ||
+                             el.querySelector('a') ||
+                             el.querySelector('[href]');
+                
+                const title = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
+                const snippet = snippetEl ? (snippetEl.innerText || snippetEl.textContent || '').trim() : '';
+                let url = urlEl ? (urlEl.href || urlEl.innerText || urlEl.textContent || '').trim() : '';
+                
+                return {
+                    title: title,
+                    url: url,
+                    snippet: snippet || (el.innerText ? el.innerText.trim().substring(0, 200) : '')
+                };
+            }).filter(r => r.title && 
+                        r.title.length > 0 && 
+                        !r.title.toLowerCase().includes('advertisement') && 
+                        !r.title.toLowerCase().includes('sponsored') &&
+                        !r.url.includes('duckduckgo.com/y.js'))
+        """)
+
+        if not raw_results:
+            # Fallback: try to get any text content
+            try:
+                page_content = page.inner_text("body")
+                if page_content and len(page_content) > 100:
+                    return f"Search results page loaded. Content preview:\n{page_content[:500]}..."
+            except Exception:
+                pass
+            return f"No results found for: {query}"
+
+        # Deduplicate results by URL and clean DuckDuckGo redirects
+        seen_urls = set()
+        unique_results = []
         
-        # Extract search results
-        titles = page.eval_on_selector_all(
-            "h3",
-            "els => els.map(e => e.innerText)"
-        )
+        for r in raw_results:
+            url = r.get("url", "")
+            title = r.get("title", "").lower()
+            
+            # Skip ads and sponsored content more aggressively
+            if any(ad_word in title for ad_word in [
+                'advertisement', 'sponsored', 'ad', 'promotion',
+                'best data science', 'program', 'course', 'learning'
+            ]) or 'duckduckgo.com/y.js' in url:
+                continue
+                
+            if not url:
+                continue
+                
+            # Extract real URL from DuckDuckGo redirect
+            real_url = self._extract_real_url(url)
+            
+            # Normalize URL for deduplication (remove tracking params)
+            base_url = real_url.split('&')[0] if '&' in real_url else real_url
+            
+            if base_url not in seen_urls:
+                seen_urls.add(base_url)
+                # Update the result with the cleaned URL
+                r["url"] = real_url
+                unique_results.append(r)
         
-        urls = page.eval_on_selector_all(
-            "cite",
-            "els => els.map(e => e.innerText)"
-        )
-        
-        # Combine and format top 5 results
-        results = []
-        for i in range(min(5, len(titles), len(urls))):
-            results.append(f"{i+1}. {titles[i]}\n   {urls[i]}")
-        
-        return "\n\n".join(results)
+        # Limit to top 5 results
+        results = unique_results[:5]
+
+        formatted = []
+        for i, r in enumerate(results, 1):
+            title = r.get("title", "").strip()
+            url = r.get("url", "").strip()
+            snippet = r.get("snippet", "").strip()
+            
+            if title and len(title) > 0:
+                formatted.append(
+                    f"{i}. {title}\n"
+                    f"   {url}\n"
+                    f"   {snippet}"
+                )
+
+        return "\n\n".join(formatted) if formatted \
+            else f"No results found for: {query}"
 
     def _resolve_path(self, path: str) -> str:
         """Resolve path using same pattern as FilesystemCapability."""
