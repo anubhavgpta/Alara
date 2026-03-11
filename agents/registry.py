@@ -1,4 +1,10 @@
-from typing import Optional
+from __future__ import annotations
+import json
+from pathlib import Path
+from typing import Type
+from loguru import logger
+
+from alara.agents.base import BaseAgent
 from alara.agents.coding_agent import CodingAgent
 from alara.agents.document_agent import DocumentAgent
 from alara.agents.research_agent import ResearchAgent
@@ -6,141 +12,184 @@ from alara.agents.writing_agent import WritingAgent
 from alara.agents.filesystem_agent import FilesystemAgent
 from alara.agents.browser_agent import BrowserAgent
 from alara.agents.comms_agent import CommsAgent
-from loguru import logger
 
-# Map use_case → agent names to activate
-USE_CASE_AGENTS = {
+# Map use_case keys from profile.json to agent classes that serve them
+USE_CASE_AGENT_MAP: dict[str, list[str]] = {
     "coding_development": [
-        "coding", "filesystem", "document"
+        "coding", "filesystem", "browser"
     ],
     "research_writing": [
-        "research", "writing", "document",
-        "filesystem"
+        "research", "writing", "browser", "filesystem"
+    ],
+    "email_communications": [
+        "comms", "filesystem"
+    ],
+    "productivity": [
+        "filesystem", "document", "writing", "browser"
     ],
     "creative_writing": [
         "writing", "document", "filesystem"
     ],
-    "personal_productivity": [
-        "filesystem", "document", "writing"
-    ],
-    "email_communications": [
-        "comms", "writing", "document"
-    ],
 }
 
-# All agents always available regardless of
-# use case (core agents)
-CORE_AGENTS = ["filesystem"]
+# All available agent classes by name
+ALL_AGENT_CLASSES: dict[str, Type[BaseAgent]] = {
+    "coding":     CodingAgent,
+    "document":   DocumentAgent,
+    "research":   ResearchAgent,
+    "writing":    WritingAgent,
+    "filesystem": FilesystemAgent,
+    "browser":    BrowserAgent,
+    "comms":      CommsAgent,
+}
 
+# Priority order for agent selection
+AGENT_PRIORITY = [
+    "comms", "browser", "document",
+    "research", "writing", "coding",
+    "filesystem"
+]
 
 class AgentRegistry:
-    """
-    Manages agent instantiation and selection.
-    Agents are instantiated once and reused.
-    """
 
     def __init__(
-        self, config: dict, profile: dict
+        self,
+        config: dict = None,
+        profile: dict = None
     ):
-        self.config = config
-        self.profile = profile
-        self._agents: dict[str, "BaseAgent"] = {}
-        self._load_agents()
+        self.config = config or {}
+        self.profile = profile or {}
 
-    def _load_agents(self):
+        # Registered agent classes (filtered by use_cases) — populated at startup
+        self._registered: dict[
+            str, Type[BaseAgent]
+        ] = {}
+
+        # Warm agent instances — populated on first use, cached for session
+        self._warm: dict[str, BaseAgent] = {}
+
+        self._register_agents()
+
+    def _register_agents(self):
         """
-        Instantiate agents based on user's
-        declared use cases from profile.
-        Always loads CORE_AGENTS.
+        Phase 1: Register agent classes only.
+        No instantiation. Filters by use_cases from profile.json.
+        Instant — no API calls.
         """
         use_cases = self.profile.get(
             "use_cases", []
         )
 
-        active_names = set(CORE_AGENTS)
+        # Collect agent names enabled by user's use cases
+        enabled: set[str] = set()
         for uc in use_cases:
-            for name in USE_CASE_AGENTS.get(
+            agents = USE_CASE_AGENT_MAP.get(
                 uc, []
-            ):
-                active_names.add(name)
+            )
+            enabled.update(agents)
 
-        # If no use cases or "all", load everything
-        if not use_cases or "all" in use_cases:
-            active_names = {
-                "coding", "document", "research",
-                "writing", "filesystem",
-                "browser", "comms"
-            }
+        # Always include filesystem as fallback
+        enabled.add("filesystem")
 
-        agent_map = {
-            "coding": CodingAgent,
-            "document": DocumentAgent,
-            "research": ResearchAgent,
-            "writing": WritingAgent,
-            "filesystem": FilesystemAgent,
-            "browser": BrowserAgent,
-            "comms": CommsAgent,
-        }
-
-        for name in active_names:
-            cls = agent_map.get(name)
-            if cls:
-                try:
-                    self._agents[name] = cls(
-                        self.config,
-                        self.profile
-                    )
-                    logger.debug(
-                        f"Loaded agent: {name}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to load {name}: {e}"
-                    )
+        # Register in priority order
+        for name in AGENT_PRIORITY:
+            if name in enabled:
+                cls = ALL_AGENT_CLASSES.get(name)
+                if cls:
+                    self._registered[name] = cls
 
         logger.info(
-            f"AgentRegistry ready: "
-            f"{list(self._agents.keys())}"
+            f"AgentRegistry: registered "
+            f"{list(self._registered.keys())} "
+            f"(lazy, not yet initialized)"
         )
+
+    def _get_or_init(
+        self, name: str
+    ) -> BaseAgent | None:
+        """
+        Phase 2: Initialize agent on first use.
+        Returns cached instance on subsequent calls.
+        """
+        if name in self._warm:
+            return self._warm[name]
+
+        cls = self._registered.get(name)
+        if not cls:
+            return None
+
+        logger.info(
+            f"AgentRegistry: initializing "
+            f"{name} agent (first use)"
+        )
+        instance = cls(
+            config=self.config,
+            profile=self.profile
+        )
+        self._warm[name] = instance
+        logger.info(
+            f"AgentRegistry: {name} agent "
+            f"is now warm"
+        )
+        return instance
 
     def select_agent(
-        self,
-        goal: str,
-        scope: str
-    ) -> "BaseAgent":
+        self, goal: str, scope: str
+    ) -> BaseAgent | None:
         """
-        Select the best agent for a goal.
-        Priority order:
-          1. First agent whose can_handle() is True
-          2. FilesystemAgent as fallback
+        Select best agent for goal.
+        Initializes agent if not yet warm.
+        Iterates registered agents in priority order and returns first match.
         """
-        # Priority order for disambiguation
-        priority = [
-            "comms", "browser", "document",
-            "research", "writing", "coding",
-            "filesystem"
-        ]
+        for name in AGENT_PRIORITY:
+            if name not in self._registered:
+                continue
 
-        for name in priority:
-            agent = self._agents.get(name)
-            if agent and agent.can_handle(
-                goal, scope
-            ):
-                logger.info(
-                    f"Selected agent: {name} "
-                    f"for goal: {goal[:50]}"
-                )
-                return agent
+            # Peek at can_handle() without full init by using class directly if possible
+            cls = self._registered[name]
+            try:
+                # Try class-level can_handle if implemented as static
+                if cls.can_handle(
+                    cls, goal, scope
+                ):
+                    agent = self._get_or_init(
+                        name
+                    )
+                    if agent:
+                        logger.info(
+                            f"Selected agent: "
+                            f"{name} for goal: "
+                            f"{goal[:50]}"
+                        )
+                        return agent
+            except Exception:
+                # Fall back to instance check
+                agent = self._get_or_init(name)
+                if agent and agent.can_handle(
+                    goal, scope
+                ):
+                    logger.info(
+                        f"Selected agent: "
+                        f"{name} for goal: "
+                        f"{goal[:50]}"
+                    )
+                    return agent
 
-        # Fallback
-        fallback = self._agents.get("filesystem")
-        logger.info(
-            f"Using fallback agent: filesystem"
+        # Fallback to filesystem
+        logger.warning(
+            "No agent matched — falling back "
+            "to filesystem agent"
         )
-        return fallback
+        return self._get_or_init("filesystem")
 
-    def get_agent(self, name: str) -> Optional["BaseAgent"]:
-        return self._agents.get(name)
+    def get_registered_names(self) -> list[str]:
+        """Return names of registered agents."""
+        return list(self._registered.keys())
 
-    def list_active(self) -> list[str]:
-        return list(self._agents.keys())
+    def get_warm_names(self) -> list[str]:
+        """Return names of initialized agents."""
+        return list(self._warm.keys())
+
+    def get_agent(self, name: str) -> BaseAgent | None:
+        """Return warm agent instance by name."""
+        return self._warm.get(name)

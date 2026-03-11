@@ -31,7 +31,7 @@ from alara.schemas.task_graph import StepStatus, TaskGraph
 from alara.utils.paths import is_setup_complete, get_log_path, get_config_path, get_profile_path
 
 
-VERSION = "v0.3.0"
+VERSION = "v0.4.1"
 console = Console()
 
 
@@ -56,7 +56,8 @@ def _show_home_screen() -> None:
         
         # Initialize agent registry to get active agents
         registry = AgentRegistry(config, profile)
-        active_agents = registry.list_active()
+        active = registry.get_registered_names()
+        warm = registry.get_warm_names()
         
         # Get memory stats
         memory = MemoryManager.get_instance()
@@ -77,7 +78,7 @@ def _show_home_screen() -> None:
         provider = config.get("provider", "unknown")
         home_text.append(f"Model    {model}\n")
         home_text.append(f"Memory   {session_count} sessions · {preference_count} preferences\n")
-        home_text.append(f"Agents   {', '.join(active_agents)}\n")
+        home_text.append(f"Agents   {', '.join(active)} ({len(warm)} warm)\n")
         home_text.append("Status   Ready", style="green")
         
         console.print(Panel(

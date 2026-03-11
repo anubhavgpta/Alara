@@ -36,15 +36,34 @@ class BaseAgent:
     capabilities: list[str] = []  # capability names
     system_prompt: str = ""
 
-    def __init__(self, config: dict, profile: dict):
-        self.config = config
-        self.profile = profile
+    def __init__(
+        self,
+        config: dict = None,
+        profile: dict = None
+    ):
+        self.config = config or {}
+        self.profile = profile or {}
         self.memory = MemoryManager.get_instance()
-        self._setup_pipeline()
+        self._goal_understander = None
+        self._planner = None
+        self._orchestrator = None
+        self._initialized = False
 
-    def _setup_pipeline(self):
-        """Initialize planner and orchestrator
-        with agent-specific system prompt."""
+    def _ensure_initialized(self):
+        """
+        Lazy init: only called when agent
+        is actually about to run a goal.
+        Creates GoalUnderstander and Planner
+        on first use only.
+        """
+        if self._initialized:
+            return
+
+        from alara.core.goal_understander \
+            import GoalUnderstander
+        from alara.core.planner import Planner
+        from alara.core.orchestrator import Orchestrator
+
         model = self.config.get(
             "model", "gemini-2.5-flash"
         )
@@ -53,20 +72,29 @@ class BaseAgent:
             "provider", "gemini"
         )
 
-        self.understander = GoalUnderstander(
-            model=model,
-            api_key=api_key,
-            provider=provider
-        )
-        self.planner = Planner(
+        self._goal_understander = \
+            GoalUnderstander(
+                model=model,
+                api_key=api_key,
+                provider=provider
+            )
+        self._planner = Planner(
             model=model,
             api_key=api_key,
             provider=provider,
             agent_system_prompt=self.system_prompt
         )
-        self.orchestrator = Orchestrator(
+        self._orchestrator = Orchestrator(
             config=self.config
         )
+        self._initialized = True
+        logger.info(
+            f"[{self.name}] Fully initialized"
+        )
+
+    def _setup_pipeline(self):
+        """Legacy method - now calls lazy init."""
+        self._ensure_initialized()
 
     def can_handle(self, goal: str,
                    scope: str) -> bool:
@@ -86,12 +114,13 @@ class BaseAgent:
         Full plan → execute loop for one goal.
         Returns AgentResult.
         """
+        self._ensure_initialized()
         logger.info(
             f"[{self.name}] Starting: {goal[:60]}"
         )
         try:
             # Understand
-            goal_ctx = self.understander.understand(
+            goal_ctx = self._goal_understander.understand(
                 goal
             )
 
@@ -107,14 +136,14 @@ class BaseAgent:
             if chain_context and not chain_context.is_empty:
                 chain_context_block = chain_context.build_context_block()
             
-            task_graph = self.planner.plan(
+            task_graph = self._planner.plan(
                 goal_context=goal_ctx,
                 memory_context=memory_context,
                 chain_context=chain_context_block
             )
 
             # Execute
-            result = self.orchestrator.run(
+            result = self._orchestrator.run(
                 task_graph
             )
 
@@ -134,7 +163,7 @@ class BaseAgent:
 
             # Extract key outputs
             key_outputs = self._extract_outputs(
-                self.orchestrator.last_execution_log
+                self._orchestrator.last_execution_log
             )
 
             return AgentResult(
@@ -145,8 +174,9 @@ class BaseAgent:
                 steps_total=result.total_steps,
                 key_outputs=key_outputs,
                 execution_log=\
-                    self.orchestrator\
-                        .last_execution_log
+                    self._orchestrator\
+                        .last_execution_log,
+                error=None if result.success else result.message
             )
 
         except Exception as e:
