@@ -73,7 +73,8 @@ def _show_home_screen() -> None:
         memory = MemoryManager.get_instance()
         health = memory.health_check()
         
-        session_count = health.get("session_goals", 0)
+        # Use database session count instead of current session entries
+        session_count = health.get("database", {}).get("table_counts", {}).get("sessions", 0)
         preference_count = health.get("total_preferences", 0)
         
         # Build home panel
