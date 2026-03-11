@@ -48,58 +48,105 @@ NOTION_TOOLS = [
 
 # Schema cleaning — required for Gemini
 TYPE_MAP = {
-    "string": "STRING",
-    "number": "NUMBER",
+    "string":  "STRING",
+    "number":  "NUMBER",
     "integer": "INTEGER",
     "boolean": "BOOLEAN",
-    "array": "ARRAY",
-    "object": "OBJECT",
+    "array":   "ARRAY",
+    "object":  "OBJECT",
 }
 
 FORBIDDEN_KEYS = {
-    "title", "examples", "minimum",
-    "maximum", "default",
+    "title",
+    "examples",
+    "minimum",
+    "maximum",
+    "default",
     "human_parameter_name",
     "human_parameter_description",
-    "minLength", "maxLength"
-}
-
-# Additional keys to remove for Gmail tools to avoid attachment validation issues
-GMAIL_FORBIDDEN_KEYS = {
-    "file_uploadable", "attachment"
+    "minLength",
+    "maxLength",
+    "file_uploadable",
+    "human_readable_description",
+    "display_name",
+    "x-",
 }
 
 def clean_schema(schema: dict) -> dict:
+    """
+    Recursively clean a Composio tool schema
+    to be compatible with Gemini's
+    FunctionDeclaration pydantic validator.
+
+    Rules:
+    1. Remove all forbidden keys
+    2. Uppercase all type values
+    3. Recurse into properties and items
+    4. Remove any key starting with 'x-'
+    """
+    if not isinstance(schema, dict):
+        return schema
+
     cleaned = {}
     for k, v in schema.items():
+        # Skip forbidden keys entirely
         if k in FORBIDDEN_KEYS:
             continue
-        if k == "type":
-            cleaned[k] = TYPE_MAP.get(v, v)
-        elif k == "properties" and isinstance(v, dict):
-            cleaned[k] = {
-                pk: clean_schema(pv)
-                for pk, pv in v.items()
-            }
-        elif k == "items" and isinstance(v, dict):
-            cleaned[k] = clean_schema(v)
+        # Skip any key starting with 'x-'
+        if isinstance(k, str) and \
+             k.startswith("x-"):
+              continue
+
+        if k == "type" and isinstance(v, str):
+            # Uppercase type value
+            cleaned[k] = TYPE_MAP.get(v, v.upper())
+
+        elif k == "properties" and \
+             isinstance(v, dict):
+              # Recurse into each property
+              cleaned[k] = {
+                  pk: clean_schema(pv)
+                  for pk, pv in v.items()
+              }
+
+        elif k == "items" and \
+             isinstance(v, dict):
+              # Recurse into array items
+              cleaned[k] = clean_schema(v)
+
+        elif k == "anyOf" and \
+             isinstance(v, list):
+              # Recurse into anyOf schemas
+              cleaned[k] = [
+                  clean_schema(s)
+                  if isinstance(s, dict) else s
+                  for s in v
+              ]
+
+        elif k == "allOf" and \
+             isinstance(v, list):
+              # Recurse into allOf schemas
+              cleaned[k] = [
+                  clean_schema(s)
+                  if isinstance(s, dict) else s
+                  for s in v
+              ]
+
+        elif isinstance(v, dict):
+              # Recurse into any other dict value
+              cleaned[k] = clean_schema(v)
+
+        elif isinstance(v, list):
+              # Recurse into list items if dicts
+              cleaned[k] = [
+                  clean_schema(i)
+                  if isinstance(i, dict) else i
+                  for i in v
+              ]
+
         else:
             cleaned[k] = v
-    return cleaned
 
-def clean_gmail_schema(schema: dict) -> dict:
-    """Additional cleaning for Gmail tools to remove attachment-related properties."""
-    cleaned = clean_schema(schema)
-    
-    # Remove attachment-related properties that cause validation errors
-    if "properties" in cleaned:
-        props = cleaned["properties"]
-        # Remove attachment-related keys
-        for key in list(props.keys()):
-            if any(attachment_key in key.lower() for attachment_key in ["attachment", "uploadable", "file"]):
-                del props[key]
-        cleaned["properties"] = props
-    
     return cleaned
 
 class ComposioCapability:
@@ -310,11 +357,7 @@ class ComposioCapability:
                         name=tool["function"]["name"],
                         description=tool["function"]
                             ["description"],
-                        parameters=clean_gmail_schema(
-                            tool["function"]
-                            ["parameters"]
-                        ) if "gmail" in tool["function"]["name"].lower()
-                        else clean_schema(
+                        parameters=clean_schema(
                             tool["function"]
                             ["parameters"]
                         )
