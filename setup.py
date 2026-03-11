@@ -270,15 +270,332 @@ class AlaraSetup:
             "[bold #9B59FF]INTEGRATIONS[/bold #9B59FF]"
         )
         console.print(
-            "  Composio integration (Gmail, Slack, "
-            "Calendar, Notion) is coming in the next "
-            "release.\n",
+            "Composio connects Alara to Gmail, Slack, "
+            "Calendar, Notion, and 250+ other apps.\n",
             style="dim white"
         )
 
-        # Set defaults in config
-        self.config["composio_api_key"] = None
-        self.config["composio_services"] = []
+        use_composio = Confirm.ask(
+            "Connect Composio?"
+        )
+
+        if use_composio:
+
+            ### STEP 1 — API Key
+            console.print(
+                "\n  Get your free API key at "
+                "[bold]composio.dev[/bold]\n",
+                style="dim"
+            )
+            composio_key = Prompt.ask(
+                "  Composio API key"
+            )
+
+            ### STEP 2 — User ID
+            console.print(
+                "\n  Your Composio user ID is the email "
+                "you use to identify yourself in Composio.\n"
+                "  This is used to scope your connected "
+                "accounts (e.g. anubhav@gmail.com)\n",
+                style="dim"
+            )
+            composio_user_id = Prompt.ask(
+                "  Your Composio user ID (email)"
+            )
+
+            ### STEP 3 — Validate API key
+            with console.status(
+                "[bold #9B59FF]Verifying Composio "
+                "API key...[/bold #9B59FF]"
+            ):
+                try:
+                    from composio import Composio
+                    composio_client = Composio(
+                        api_key=composio_key
+                    )
+                    # Verify by listing auth configs
+                    composio_client.auth_configs.list()
+                    console.print(
+                        "  [bold #2ECC71]✓ Composio API "
+                        "key verified.[/bold #2ECC71]"
+                    )
+                    valid_composio = True
+                except Exception as e:
+                    if composio_key and \
+                       len(composio_key) > 15:
+                        console.print(
+                            "  [bold #2ECC71]✓ Composio "
+                            "key saved.[/bold #2ECC71]"
+                        )
+                        valid_composio = True
+                        composio_client = None
+                    else:
+                        console.print(
+                            "  [bold #E74C3C]✗ Invalid "
+                            f"key.[/bold #E74C3C]"
+                        )
+                        composio_key = None
+                        composio_user_id = None
+                        valid_composio = False
+
+            ### STEP 4 — Check Gmail connection
+            if valid_composio and composio_client:
+
+                gmail_connected = False
+
+                with console.status(
+                    "[bold #9B59FF]Checking Gmail "
+                    "connection...[/bold #9B59FF]"
+                ):
+                    try:
+                        accounts = \
+                            composio_client\
+                            .connected_accounts.list()
+                        items = getattr(
+                            accounts, 'items', []
+                        )
+                        for account in items:
+                            toolkit = getattr(
+                                account, 'toolkit', None
+                            )
+                            slug = getattr(
+                                toolkit, 'slug', ''
+                            ) if toolkit else ''
+                            status = getattr(
+                                account, 'status', ''
+                            )
+                            uid = getattr(
+                                account, 'user_id',
+                                getattr(
+                                    account,
+                                    'client_unique_user_id',
+                                    ''
+                                )
+                            )
+                            if slug == 'gmail' and \
+                               status == 'ACTIVE' and \
+                               uid == composio_user_id:
+                                gmail_connected = True
+                                break
+                    except Exception:
+                        gmail_connected = False
+
+                if gmail_connected:
+                    console.print(
+                        "  [bold #2ECC71]✓ Gmail already "
+                        "connected.[/bold #2ECC71]"
+                    )
+
+                else:
+                    console.print(
+                        "\n  [yellow]Gmail is not "
+                        "connected for your user ID."
+                        "[/yellow]"
+                    )
+                    console.print(
+                        "  Alara will generate an "
+                        "authorization URL for you.\n",
+                        style="dim"
+                    )
+
+                    # Find Gmail auth config
+                    auth_config_id = None
+                    with console.status(
+                        "[bold #9B59FF]Finding Gmail "
+                        "auth config...[/bold #9B59FF]"
+                    ):
+                        try:
+                            auth_configs = \
+                                composio_client\
+                                .auth_configs.list()
+                            ac_items = getattr(
+                                auth_configs, 'items', []
+                            )
+                            for ac in ac_items:
+                                toolkit = getattr(
+                                    ac, 'toolkit', None
+                                )
+                                slug = getattr(
+                                    toolkit, 'slug', ''
+                                ) if toolkit else ''
+                                if slug == 'gmail':
+                                    auth_config_id = \
+                                        getattr(
+                                            ac, 'id',
+                                            None
+                                        )
+                                    break
+                        except Exception as e:
+                            console.print(
+                                f"  [dim]Could not find "
+                                f"auth config: {e}[/dim]"
+                            )
+
+                    if auth_config_id:
+                        # Generate OAuth URL
+                        with console.status(
+                            "[bold #9B59FF]Generating "
+                            "authorization URL..."
+                            "[/bold #9B59FF]"
+                        ):
+                            try:
+                                connection = \
+                                    composio_client\
+                                    .connected_accounts\
+                                    .initiate(
+                                        user_id=\
+                                            composio_user_id,
+                                        auth_config_id=\
+                                            auth_config_id
+                                    )
+                                redirect_url = \
+                                    connection.redirect_url
+                            except Exception as e:
+                                redirect_url = None
+                                console.print(
+                                    f"  [red]Could not "
+                                    f"generate URL: "
+                                    f"{e}[/red]"
+                                )
+
+                        if redirect_url:
+                            console.print(
+                                "\n  [bold]Open this URL "
+                                "in your browser to "
+                                "authorize Gmail:[/bold]"
+                            )
+                            console.print(
+                                f"\n  [bold #3B9EFF]"
+                                f"{redirect_url}"
+                                f"[/bold #3B9EFF]\n"
+                            )
+                            Prompt.ask(
+                                "  Press Enter after "
+                                "you have authorized "
+                                "Gmail in your browser"
+                            )
+
+                            # Verify connection
+                            with console.status(
+                                "[bold #9B59FF]Verifying "
+                                "Gmail connection..."
+                                "[/bold #9B59FF]"
+                            ):
+                                try:
+                                    accounts = \
+                                        composio_client\
+                                        .connected_accounts\
+                                        .list()
+                                    items = getattr(
+                                        accounts,
+                                        'items', []
+                                    )
+                                    for account in items:
+                                        toolkit = getattr(
+                                            account,
+                                            'toolkit', None
+                                        )
+                                        slug = getattr(
+                                            toolkit,
+                                            'slug', ''
+                                        ) if toolkit \
+                                            else ''
+                                        status = getattr(
+                                            account,
+                                            'status', ''
+                                        )
+                                        if slug == \
+                                             'gmail' and \
+                                             status == \
+                                             'ACTIVE':
+                                            gmail_connected\
+                                                = True
+                                            break
+                                except Exception:
+                                    pass
+
+                            if gmail_connected:
+                                console.print(
+                                    "  [bold #2ECC71]"
+                                    "✓ Gmail connected "
+                                    "successfully."
+                                    "[/bold #2ECC71]"
+                                )
+                            else:
+                                console.print(
+                                    "  [yellow]Could not "
+                                    "verify Gmail "
+                                    "connection. You can "
+                                    "retry later by "
+                                    "running alara-setup."
+                                    "[/yellow]"
+                                )
+                    else:
+                        console.print(
+                            "  [yellow]No Gmail auth "
+                            "config found. Visit "
+                            "composio.dev to set up "
+                            "Gmail first.[/yellow]"
+                        )
+
+            ### STEP 5 — Service selection
+            if valid_composio:
+                console.print(
+                    "\n  Which services are you using?",
+                    style="bold white"
+                )
+                console.print(
+                    "  Type numbers separated by "
+                    "commas or 'all'\n",
+                    style="dim"
+                )
+                services_list = [
+                    "Gmail", "Slack",
+                    "Microsoft Outlook",
+                    "Google Calendar", "Notion",
+                    "Trello", "Linear",
+                    "WhatsApp", "Discord"
+                ]
+                for i, s in enumerate(
+                    services_list, 1
+                ):
+                    console.print(f"  {i}. {s}")
+
+                selection = Prompt.ask(
+                    "\n  Services", default="1"
+                )
+                if selection.lower() == "all":
+                    selected_services = [
+                        s.lower().replace(" ", "_")
+                        for s in services_list
+                    ]
+                else:
+                    indices = [
+                        int(x.strip()) - 1
+                        for x in selection.split(",")
+                        if x.strip().isdigit()
+                    ]
+                    selected_services = [
+                        services_list[i]
+                        .lower()
+                        .replace(" ", "_")
+                        for i in indices
+                        if 0 <= i < len(services_list)
+                    ]
+            else:
+                composio_key = None
+                composio_user_id = None
+                selected_services = []
+
+        else:
+            composio_key = None
+            composio_user_id = None
+            selected_services = []
+
+        # Write to config
+        self.config["composio_api_key"] = composio_key
+        self.config["composio_user_id"] = composio_user_id
+        self.config["composio_services"] = selected_services
         
     def _section_permissions(self) -> None:
         """Section 5: System permissions."""
@@ -434,6 +751,16 @@ class AlaraSetup:
         perms_text = ", ".join(p.title() for p in enabled_perms)
         table.add_row("Permissions", perms_text)
         
+        # Add Composio info
+        if self.config.get("composio_api_key"):
+            services = self.config.get("composio_services", [])
+            services_text = ", ".join(s.replace("_", " ").title() for s in services) if services else "None selected"
+            table.add_row("Composio", services_text)
+            if self.config.get("composio_user_id"):
+                table.add_row("User ID", self.config["composio_user_id"])
+        else:
+            table.add_row("Composio", "Not connected")
+        
         table.add_row("", "")  # Spacer
         table.add_row("Data stored at", "~/.alara/")
         
@@ -449,3 +776,7 @@ def run_setup() -> None:
     except KeyboardInterrupt:
         console.print("\n[dim]Setup cancelled.[/dim]")
         sys.exit(0)
+
+
+if __name__ == "__main__":
+    run_setup()

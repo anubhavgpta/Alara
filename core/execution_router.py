@@ -41,6 +41,19 @@ class ExecutionRouter:
             "get_links", "wait_for", "extract_table",
             "search_web"
         }
+        
+        # Composio operations set
+        self.COMPOSIO_OPS = {
+            "send_email", "read_emails",
+            "create_calendar_event",
+            "get_calendar_events",
+            "send_slack_message",
+            "create_notion_page",
+            "update_notion_page",
+            "create_task",
+            "send_whatsapp",
+            "trigger_webhook"
+        }
 
     def route(self, step: Step) -> CapabilityResult:
         """Execute a single step using the capability hierarchy."""
@@ -55,6 +68,11 @@ class ExecutionRouter:
             if step.operation in self.BROWSER_OPS or step.step_type == StepType.BROWSER:
                 from alara.capabilities.browser import BrowserCapability
                 return BrowserCapability(self.config).execute(step.operation, step.params)
+            
+            # Route Composio operations directly to ComposioCapability
+            if step.operation in self.COMPOSIO_OPS or step.step_type == StepType.APP_ADAPTER or step.step_type == StepType.COMMS:
+                from alara.capabilities.composio_capability import ComposioCapability
+                return ComposioCapability(self.config).execute(step.operation, step.params)
             
             # Route code operations directly to CodeCapability
             if step.step_type == StepType.CODE or self.code.supports(step.operation):
