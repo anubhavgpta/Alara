@@ -300,7 +300,7 @@ class BrowserCapability(BaseCapability):
         # Extract results with multiple selector attempts
         raw_results = page.eval_on_selector_all(
             ".result, div[class*='result'], article",
-            """els => els.slice(0, 12).map(el => {
+            """els => els.slice(0, 15).map(el => {
                 // Try multiple selectors for title
                 const titleEl = el.querySelector('.result__title') || 
                                 el.querySelector('h2') || 
@@ -308,10 +308,10 @@ class BrowserCapability(BaseCapability):
                                 el.querySelector('a') ||
                                 el.querySelector('[class*="title"]');
                 
-                // Try multiple selectors for snippet
+                // Try multiple selectors for content in priority order
                 const snippetEl = el.querySelector('.result__snippet') ||
-                                 el.querySelector('[class*="snippet"]') ||
-                                 el.querySelector('[class*="description"]') ||
+                                 el.querySelector('.result__body') ||
+                                 el.querySelector('[class*="body"]') ||
                                  el.querySelector('p');
                 
                 // Try multiple selectors for URL
@@ -320,13 +320,33 @@ class BrowserCapability(BaseCapability):
                              el.querySelector('[href]');
                 
                 const title = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
-                const snippet = snippetEl ? (snippetEl.innerText || snippetEl.textContent || '').trim() : '';
+                
+                // Extract content with fallbacks
+                let content = '';
+                if (snippetEl) {
+                    content = snippetEl.innerText || snippetEl.textContent || '';
+                }
+                
+                // If no snippet, try to get any text content from the result
+                if (!content) {
+                    const allText = el.innerText || el.textContent || '';
+                    // Remove title from the text to get just the content
+                    if (allText && title) {
+                        content = allText.replace(title, '').trim();
+                    } else if (allText) {
+                        content = allText.trim();
+                    }
+                }
+                
+                // Limit content to 300 chars
+                content = content.substring(0, 300);
+                
                 let url = urlEl ? (urlEl.href || urlEl.innerText || urlEl.textContent || '').trim() : '';
                 
                 return {
                     title: title,
                     url: url,
-                    snippet: snippet || (el.innerText ? el.innerText.trim().substring(0, 200) : '')
+                    snippet: content
                 };
             }).filter(r => r.title && 
                         r.title.length > 0 && 
@@ -375,8 +395,8 @@ class BrowserCapability(BaseCapability):
                 r["url"] = real_url
                 unique_results.append(r)
         
-        # Limit to top 5 results
-        results = unique_results[:5]
+        # Limit to top 10 unique organic results
+        results = unique_results[:10]
 
         formatted = []
         for i, r in enumerate(results, 1):
@@ -384,12 +404,15 @@ class BrowserCapability(BaseCapability):
             url = r.get("url", "").strip()
             snippet = r.get("snippet", "").strip()
             
-            if title and len(title) > 0:
-                formatted.append(
-                    f"{i}. {title}\n"
-                    f"   {url}\n"
-                    f"   {snippet}"
-                )
+            # Skip results where both title and snippet are empty
+            if not title and not snippet:
+                continue
+                
+            formatted.append(
+                f"{i}. {title}\n"
+                f"   {url}\n"
+                f"   {snippet}"
+            )
 
         return "\n\n".join(formatted) if formatted \
             else f"No results found for: {query}"

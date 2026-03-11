@@ -217,24 +217,36 @@ No markdown, no explanation, no extra text.
                 f"{goal}"
             )
 
-        combined = "\n\n---\n\n".join(valid)
+        combined = "\n\n".join(valid)
 
         # Trim to 10000 chars for context window
         if len(combined) > 10000:
             combined = combined[:10000] + "..."
 
-        prompt = f"""
-Research goal: {goal}
+        # Extract topic from goal (remove "research" prefix if present)
+        topic = goal
+        if goal.lower().startswith("research "):
+            topic = goal[9:].strip()
 
-Raw content collected from the web:
+        prompt = f"""You are a research assistant.
+Synthesize the following search results into
+a clear, informative research summary about:
+{topic}
+
+Search results:
 {combined}
 
-Write a clear, accurate summary that directly
-answers the research goal. Use plain prose.
-Mention key facts, figures, and dates.
-Note the sources where relevant.
-Be concise but complete.
-"""
+Write a well-structured summary with:
+- A clear opening definition or overview
+- Key concepts, types, or components
+- Real-world applications or examples
+- Any notable facts, figures, or context
+
+Write in flowing prose, 3-5 paragraphs.
+Be direct and informative. If the content
+is limited, work confidently with what is
+available. Do not mention limitations of
+the source material."""
 
         try:
             client = genai.Client(
