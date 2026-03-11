@@ -59,6 +59,16 @@ def _show_home_screen() -> None:
         active = registry.get_registered_names()
         warm = registry.get_warm_names()
         
+        # Discover connected Composio services
+        connected_services = []
+        if "comms" in active:
+            try:
+                from alara.capabilities.composio_capability import ComposioCapability
+                cap = ComposioCapability(config)
+                connected_services = cap.discover_and_cache()
+            except Exception:
+                pass
+        
         # Get memory stats
         memory = MemoryManager.get_instance()
         health = memory.health_check()
@@ -79,6 +89,12 @@ def _show_home_screen() -> None:
         home_text.append(f"Model    {model}\n")
         home_text.append(f"Memory   {session_count} sessions · {preference_count} preferences\n")
         home_text.append(f"Agents   {', '.join(active)} ({len(warm)} warm)\n")
+        
+        # Show connected Composio services if any
+        if connected_services:
+            services_str = ", ".join(connected_services)
+            home_text.append(f"Comms    {services_str} (via Composio)\n")
+        
         home_text.append("Status   Ready", style="green")
         
         console.print(Panel(
@@ -286,10 +302,11 @@ def cli_entry() -> int:
     
     # Setup logging to use ~/.alara/alara.log
     logger.remove()
+    log_level = "DEBUG" if os.getenv("DEBUG") == "true" else "INFO"
     logger.add(
         str(get_log_path()),
         rotation="10 MB",
-        level="INFO",
+        level=log_level,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
     )
     

@@ -52,7 +52,13 @@ class ExecutionRouter:
             "update_notion_page",
             "create_task",
             "send_whatsapp",
-            "trigger_webhook"
+            "trigger_webhook",
+            # Gmail specific tools
+            "GMAIL_CREATE_EMAIL_DRAFT",
+            "GMAIL_FETCH_EMAILS",
+            "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+            "GMAIL_REPLY_TO_THREAD",
+            "GMAIL_FORWARD_MESSAGE",
         }
 
     def route(self, step: Step) -> CapabilityResult:
