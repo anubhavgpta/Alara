@@ -1,7 +1,9 @@
 """Browser automation capability using Playwright sync API."""
 
 import os
+import random
 import re
+import time
 import urllib.parse
 from typing import Any, Dict
 
@@ -48,7 +50,7 @@ class BrowserCapability(BaseCapability):
             })
             
             try:
-                result = self._dispatch(page, operation, params)
+                result = self._dispatch(page, browser, operation, params)
                 return CapabilityResult(success=True, output=result)
             except Exception as e:
                 return CapabilityResult(success=False, error=str(e))
@@ -67,7 +69,7 @@ class BrowserCapability(BaseCapability):
                 pass
         return ddg_url
 
-    def _dispatch(self, page, operation: str, params: Dict[str, Any]) -> str:
+    def _dispatch(self, page, browser, operation: str, params: Dict[str, Any]) -> str:
         """Dispatch operation to appropriate handler."""
         if operation == "navigate":
             return self._navigate(page, params)
@@ -90,7 +92,7 @@ class BrowserCapability(BaseCapability):
         elif operation == "wait_for":
             return self._wait_for(page, params)
         elif operation == "search_web":
-            return self._search_web(page, params)
+            return self._search_web(page, browser, params)
         else:
             raise ValueError(f"Unsupported operation: {operation}")
 
@@ -419,9 +421,13 @@ class BrowserCapability(BaseCapability):
         return "\n\n".join(formatted) if formatted \
             else f"No results found for: {query}"
 
-    def _search_web(self, page, params: Dict[str, Any]) -> str:
+    def _search_web(self, page, browser, params: Dict[str, Any]) -> str:
         """Search the web using DuckDuckGo with retry for thin results."""
         query = params["query"]
+        
+        # Polite delay between searches
+        delay = random.uniform(1.0, 2.5)
+        time.sleep(delay)
         
         # First attempt
         output = self._do_search(page, query)
@@ -434,10 +440,38 @@ class BrowserCapability(BaseCapability):
             logger.warning(
                 f"[browser] Search returned thin "
                 f"results ({len(output)} chars), "
-                f"retrying with: '{retry_query}'"
+                f"retrying with fresh context: "
+                f"'{retry_query}'"
             )
-            # Re-run the search with new query
-            output = self._do_search(page, retry_query)
+            # Longer delay before retry
+            time.sleep(random.uniform(3.0, 5.0))
+            
+            # Fresh context for retry
+            retry_context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+                locale="en-US"
+            )
+            retry_page = retry_context.new_page()
+            retry_page.set_default_timeout(10000)
+            
+            # Add extra headers to look more like a real browser
+            retry_page.set_extra_http_headers({
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1"
+            })
+            
+            try:
+                output = self._do_search(retry_page, retry_query)
+            finally:
+                retry_context.close()
         
         # Return whatever we have (even if still thin)
         return output

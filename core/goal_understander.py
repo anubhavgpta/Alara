@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from google import genai
 from loguru import logger
@@ -65,13 +66,30 @@ class GoalUnderstander:
 
         raw_response: str | None = None
         try:
-            response = self._generate_content(raw_input)
-            raw_response = (getattr(response, "text", None) or "").strip()
-            if not raw_response:
-                raise ValueError("Gemini returned an empty response")
+            # Add retry loop for JSON parsing
+            for attempt in range(3):
+                try:
+                    response = self._generate_content(raw_input)
+                    raw_response = (getattr(response, "text", None) or "").strip()
+                    if not raw_response:
+                        raise ValueError("Gemini returned an empty response")
 
-            payload_text = self._strip_fences(raw_response)
-            payload = json.loads(payload_text)
+                    cleaned = self._clean_json(raw_response)
+                    payload = json.loads(cleaned)
+                    break  # success
+                except json.JSONDecodeError as e:
+                    if attempt == 2:
+                        logger.warning(
+                            f"GoalUnderstander JSON parse failed "
+                            f"after 3 attempts: {e}, falling back to from_raw"
+                        )
+                        return GoalContext.from_raw(raw_input)
+                    logger.warning(
+                        f"GoalUnderstander JSON parse failed "
+                        f"(attempt {attempt+1}): {e}, "
+                        f"retrying..."
+                    )
+                    continue
 
             context_payload = {
                 "raw_input": raw_input,
@@ -119,6 +137,52 @@ class GoalUnderstander:
                 lines = lines[:-1]
             body = "\n".join(lines).strip()
         return body
+
+    def _clean_json(self, raw: str) -> str:
+        """
+        Clean common Gemini JSON output issues
+        before parsing.
+        """
+        # Strip markdown fences
+        raw = re.sub(
+            r'^```(?:json)?\s*', '', raw,
+            flags=re.MULTILINE
+        )
+        raw = re.sub(
+            r'\s*```$', '', raw,
+            flags=re.MULTILINE
+        )
+        raw = raw.strip()
+
+        # Handle "Extra data" error by finding the first
+        # complete JSON object/array and ignoring everything after
+        # Look for object start
+        obj_start = raw.find('{')
+        if obj_start != -1:
+            # Count braces to find the end of the object
+            brace_count = 0
+            for i in range(obj_start, len(raw)):
+                if raw[i] == '{':
+                    brace_count += 1
+                elif raw[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found complete object
+                        raw = raw[obj_start:i+1]
+                        break
+
+        # If response is truncated (no closing
+        # brace), try to recover by finding
+        # the last complete opening and close it
+        if raw.endswith(','):
+            raw = raw[:-1]
+        if raw.startswith('{') and not raw.endswith('}'):
+            # Find last complete opening and close it
+            last_open = raw.rfind('{')
+            if last_open != -1:
+                raw = raw[:last_open] + '}'
+
+        return raw
 
     def _build_system_prompt(self) -> str:
         return (
