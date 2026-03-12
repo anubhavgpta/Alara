@@ -193,3 +193,11 @@ class AgentRegistry:
     def get_agent(self, name: str) -> BaseAgent | None:
         """Return warm agent instance by name."""
         return self._warm.get(name)
+
+    def list_active(self) -> list[str]:
+        """Return names of warm (initialized) agents."""
+        return list(self._warm.keys())
+
+    def list_registered(self) -> list[str]:
+        """Return names of all registered agents."""
+        return list(self._registered.keys())

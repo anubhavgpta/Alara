@@ -57,6 +57,8 @@ class MasterOrchestrator:
 
         # 3. Execute each assignment
         results = []
+        previous_outputs = []  # Collect outputs from previous agents
+        
         for i, assignment in enumerate(assignments):
             if len(assignments) > 1:
                 console and console.print(
@@ -67,7 +69,18 @@ class MasterOrchestrator:
                     f"[/dim]"
                 )
 
-            agent = self.registry.get_agent(
+            # Inject previous outputs into sub-goal if available
+            if previous_outputs:
+                context = "\n\n".join(previous_outputs)
+                enriched_goal = (
+                    f"{assignment['goal']}\n\n"
+                    f"Use the following content from "
+                    f"previous steps:\n{context}"
+                )
+            else:
+                enriched_goal = assignment['goal']
+
+            agent = self.registry._get_or_init(
                 assignment["agent"]
             )
             if not agent:
@@ -77,11 +90,17 @@ class MasterOrchestrator:
                 )
 
             result = agent.run(
-                goal=assignment["goal"],
+                goal=enriched_goal,
                 chain_context=self.chain
                     if not self.chain.is_empty
                     else None
             )
+
+            # Collect output for next agent
+            if result.key_outputs:
+                previous_outputs.extend(result.key_outputs)
+            elif hasattr(result, 'output') and result.output:
+                previous_outputs.append(result.output)
 
             self.chain.add(
                 goal=assignment["goal"],
@@ -146,7 +165,7 @@ class MasterOrchestrator:
         into agent assignments.
         """
         available_agents = \
-            self.registry.list_active()
+            self.registry.list_registered()
 
         prompt = f"""
         You are the Master Orchestrator for ALARA,
@@ -221,9 +240,9 @@ class MasterOrchestrator:
         assignments = data.get("assignments", [])
 
         # Validate agent names
-        active = self.registry.list_active()
+        registered = self.registry.list_registered()
         for a in assignments:
-            if a["agent"] not in active:
+            if a["agent"] not in registered:
                 # Find closest match
                 a["agent"] = "filesystem"
 

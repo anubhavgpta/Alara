@@ -340,6 +340,10 @@ class PreferenceMemory:
         if not result.success:
             return
         
+        # Don't infer if task_graph is None
+        if task_graph is None:
+            return
+        
         try:
             # Extract path aliases
             self._infer_path_aliases(goal, task_graph)

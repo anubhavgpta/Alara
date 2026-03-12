@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -92,8 +93,23 @@ class Planner:
                 logger.warning("Pass 1 failed — falling back to single-pass planning")
 
         user_message = self._build_user_message(goal_context, memory_context, code_context, approach_context, chain_context)
-        raw_response = self._call_gemini(user_message)
-        parsed_steps = self._parse_response(raw_response)
+        
+        # Add retry loop for JSON parsing
+        for attempt in range(3):
+            try:
+                raw_response = self._call_gemini(user_message)
+                cleaned = self._clean_json(raw_response)
+                parsed_steps = self._parse_response(cleaned)
+                break  # success
+            except json.JSONDecodeError as e:
+                if attempt == 2:
+                    raise PlanningError(f"Failed to parse JSON after 3 attempts: {e}") from e
+                logger.warning(
+                    f"Planner JSON parse failed "
+                    f"(attempt {attempt+1}): {e}, "
+                    f"retrying..."
+                )
+                continue
 
         parsed_ids: set[int] = set()
         for item in parsed_steps:
@@ -272,34 +288,76 @@ class Planner:
             logger.error("Pass 1 Gemini API call failed: {}", exc)
             raise PlanningError(f"Pass 1 Gemini API call failed: {exc}", cause=exc) from exc
 
-    def _call_gemini(self, user_message: str) -> str:
-        retry_suffix = (
-            "\n\nYour previous response was not valid JSON. Return ONLY the JSON object. "
-            "No markdown, no explanation, no code fences."
+    def _clean_json(self, raw: str) -> str:
+        """
+        Clean common Gemini JSON output issues
+        before parsing.
+        """
+        # Strip markdown fences
+        raw = re.sub(
+            r'^```(?:json)?\s*', '', raw,
+            flags=re.MULTILINE
         )
+        raw = re.sub(
+            r'\s*```$', '', raw,
+            flags=re.MULTILINE
+        )
+        raw = raw.strip()
 
-        first_response_text = self._generate_content(user_message)
-        self.last_raw_response = first_response_text
-        try:
-            self._parse_response(first_response_text)
-            return first_response_text
-        except PlanningError:
-            logger.warning("First parse attempt failed, retrying with stricter instruction.")
-            logger.debug("Raw response attempt 1: {}", first_response_text)
+        # Handle "Extra data" error by finding the first
+        # complete JSON object/array and ignoring everything after
+        # Look for array start
+        array_start = raw.find('[')
+        if array_start != -1:
+            # Count brackets to find the end of the array
+            bracket_count = 0
+            for i in range(array_start, len(raw)):
+                if raw[i] == '[':
+                    bracket_count += 1
+                elif raw[i] == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        # Found complete array
+                        raw = raw[array_start:i+1]
+                        break
+        else:
+            # Look for object start
+            obj_start = raw.find('{')
+            if obj_start != -1:
+                # Count braces to find the end of the object
+                brace_count = 0
+                for i in range(obj_start, len(raw)):
+                    if raw[i] == '{':
+                        brace_count += 1
+                    elif raw[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # Found complete object
+                            raw = raw[obj_start:i+1]
+                            break
 
-        second_message = f"{user_message}{retry_suffix}"
-        second_response_text = self._generate_content(second_message)
-        self.last_raw_response = second_response_text
-        try:
-            self._parse_response(second_response_text)
-            return second_response_text
-        except PlanningError as second_parse_error:
-            logger.debug("Raw response attempt 2: {}", second_response_text)
-            logger.error("Gemini returned malformed JSON after 2 attempts")
-            raise PlanningError(
-                "Gemini returned malformed JSON after 2 attempts",
-                cause=second_parse_error,
-            ) from second_parse_error
+        # If response is truncated (no closing
+        # bracket), try to recover by finding
+        # the last complete object and closing
+        # the array
+        if raw.endswith(','):
+            raw = raw[:-1]
+        if raw.startswith('[') and not raw.endswith(']'):
+            # Find last complete JSON object
+            last_close = raw.rfind('}')
+            if last_close != -1:
+                raw = raw[:last_close + 1] + ']'
+        elif raw.startswith('{') and not raw.endswith('}'):
+            # Find last complete opening and close it
+            last_open = raw.rfind('{')
+            if last_open != -1:
+                raw = raw[:last_open] + '}'
+
+        return raw
+
+    def _call_gemini(self, user_message: str) -> str:
+        """Make a single Gemini API call."""
+        return self._generate_content(user_message)
 
     def _generate_content(self, message: str) -> str:
         try:
@@ -326,20 +384,15 @@ class Planner:
         if raw is None:
             raise PlanningError("Invalid JSON from Gemini: response was None")
 
-        body = raw.strip()
+        # Clean the JSON first
+        cleaned = self._clean_json(raw)
+        
+        body = cleaned.strip()
         if not body:
             raise PlanningError("Invalid JSON from Gemini: response was empty or whitespace")
 
         if body.lower() in {"null", "undefined"}:
             raise PlanningError(f"Invalid JSON from Gemini: response was {body!r}")
-
-        if body.startswith("```"):
-            lines = body.splitlines()
-            if lines and lines[0].strip().startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            body = "\n".join(lines).strip()
 
         try:
             parsed = json.loads(body)

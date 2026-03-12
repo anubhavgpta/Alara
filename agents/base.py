@@ -19,6 +19,7 @@ class AgentResult:
     steps_total: int
     key_outputs: list[str]
     execution_log: list
+    steps_failed: int = 0
     error: Optional[str] = None
 
 
@@ -119,16 +120,28 @@ class BaseAgent:
             f"[{self.name}] Starting: {goal[:60]}"
         )
         try:
+            # Extract any additional context from the goal
+            # (e.g., previous agent outputs injected by MasterOrchestrator)
+            code_context = None
+            if "\n\nUse the following content from previous steps:" in goal:
+                # Split the goal to extract the context
+                parts = goal.split("\n\nUse the following content from previous steps:")
+                actual_goal = parts[0].strip()
+                context_content = parts[1].strip()
+                code_context = context_content
+            else:
+                actual_goal = goal
+            
             # Understand
             goal_ctx = self._goal_understander.understand(
-                goal
+                actual_goal
             )
 
             # Build memory context
             if memory_context is None:
                 memory_context = \
                     self.memory.build_context(
-                        goal, goal_ctx
+                        actual_goal, goal_ctx
                     )
 
             # Plan
@@ -139,6 +152,7 @@ class BaseAgent:
             task_graph = self._planner.plan(
                 goal_context=goal_ctx,
                 memory_context=memory_context,
+                code_context=code_context,
                 chain_context=chain_context_block
             )
 
@@ -172,6 +186,7 @@ class BaseAgent:
                 success=result.success,
                 steps_completed=result.steps_completed,
                 steps_total=result.total_steps,
+                steps_failed=0,  # Base agents don't track failed steps
                 key_outputs=key_outputs,
                 execution_log=\
                     self._orchestrator\
@@ -189,6 +204,7 @@ class BaseAgent:
                 success=False,
                 steps_completed=0,
                 steps_total=0,
+                steps_failed=0,
                 key_outputs=[],
                 execution_log=[],
                 error=str(e)

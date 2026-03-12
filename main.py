@@ -244,7 +244,58 @@ def _run_goal(
     chain_context: ChainContext = None
 ) -> list:
     """Run a goal using the master orchestrator."""
+    from alara.memory import MemoryManager
+    from alara.core.goal_understander import GoalUnderstander
+    from datetime import datetime
+    import time
+    
+    memory = MemoryManager.get_instance()
+    
+    # Start goal session
+    goal_understander = GoalUnderstander(
+        model=master.config.get("model", "gemini-2.5-flash"),
+        api_key=master.config.get("api_key", ""),
+        provider=master.config.get("provider", "gemini")
+    )
+    goal_context = goal_understander.understand(goal)
+    entry_id = memory.session.start_goal(goal, goal_context)
+    
+    start_time = time.time()
     results = master.run(goal, console=console)
+    duration_ms = int((time.time() - start_time) * 1000)
+    
+    # Collect all key_outputs from results
+    all_key_outputs = []
+    for result in results:
+        all_key_outputs.extend(result.key_outputs)
+    
+    # Create OrchestratorResult for memory logging
+    from alara.core.orchestrator import OrchestratorResult
+    total_steps = sum(r.steps_total for r in results)
+    completed_steps = sum(r.steps_completed for r in results)
+    failed_steps = sum(r.steps_failed for r in results)
+    overall_success = all(r.success for r in results)
+    
+    orchestrator_result = OrchestratorResult(
+        success=overall_success,
+        steps_completed=completed_steps,
+        steps_failed=failed_steps,
+        steps_skipped=0,  # Not tracked at this level
+        total_steps=total_steps,
+        message="",
+        execution_log=[]
+    )
+    
+    # Log to memory with key_outputs
+    memory.after_execution(
+        goal=goal,
+        goal_context=goal_context,
+        task_graph=None,  # Not available at this level
+        result=orchestrator_result,
+        entry_id=entry_id,
+        duration_ms=duration_ms,
+        key_outputs=all_key_outputs
+    )
 
     for result in results:
         if result.success:

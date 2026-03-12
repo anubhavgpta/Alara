@@ -10,6 +10,10 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from alara.capabilities.base import BaseCapability, CapabilityResult
 
 
+# Minimum character count for search results to be considered useful
+MIN_RESULT_LENGTH = 200
+
+
 class BrowserCapability(BaseCapability):
     """Browser automation capability using Playwright."""
 
@@ -266,10 +270,8 @@ class BrowserCapability(BaseCapability):
         page.wait_for_selector(selector, timeout=timeout_ms)
         return f"Element {selector} found"
 
-    def _search_web(self, page, params: Dict[str, Any]) -> str:
-        """Search the web using DuckDuckGo."""
-        query = params["query"]
-
+    def _do_search(self, page, query: str) -> str:
+        """Core search implementation that can be called for retry."""
         url = (
             "https://html.duckduckgo.com/html/"
             f"?q={urllib.parse.quote(query)}"
@@ -416,6 +418,29 @@ class BrowserCapability(BaseCapability):
 
         return "\n\n".join(formatted) if formatted \
             else f"No results found for: {query}"
+
+    def _search_web(self, page, params: Dict[str, Any]) -> str:
+        """Search the web using DuckDuckGo with retry for thin results."""
+        query = params["query"]
+        
+        # First attempt
+        output = self._do_search(page, query)
+        
+        # Check if results are too thin and retry if needed
+        if len(output) < MIN_RESULT_LENGTH:
+            # Rephrase query and retry once
+            retry_query = query + " overview"
+            from loguru import logger
+            logger.warning(
+                f"[browser] Search returned thin "
+                f"results ({len(output)} chars), "
+                f"retrying with: '{retry_query}'"
+            )
+            # Re-run the search with new query
+            output = self._do_search(page, retry_query)
+        
+        # Return whatever we have (even if still thin)
+        return output
 
     def _resolve_path(self, path: str) -> str:
         """Resolve path using same pattern as FilesystemCapability."""

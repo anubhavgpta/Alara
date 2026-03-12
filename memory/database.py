@@ -14,7 +14,7 @@ from typing import Any, ClassVar
 from loguru import logger
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseManager:
@@ -89,6 +89,8 @@ class DatabaseManager:
             # Run migrations if needed
             if current_version < SCHEMA_VERSION:
                 self._run_migrations(conn, current_version)
+            elif current_version == 0:
+                # Fresh database - insert initial schema version
                 conn.execute(
                     "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
                     (SCHEMA_VERSION, datetime.now(timezone.utc).isoformat())
@@ -113,6 +115,7 @@ class DatabaseManager:
                 steps_completed INTEGER NOT NULL,
                 steps_failed INTEGER NOT NULL,
                 execution_log TEXT NOT NULL,
+                key_outputs TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 completed_at TEXT
             )
@@ -170,8 +173,22 @@ class DatabaseManager:
         """Run database migrations from current_version to SCHEMA_VERSION."""
         logger.info("Running migrations from version {} to {}", current_version, SCHEMA_VERSION)
         
-        # Future migrations will be added here
-        # For now, we're at version 1, so no migrations needed yet
+        if current_version < 2:
+            # Add key_outputs column to sessions table
+            try:
+                conn.execute("ALTER TABLE sessions ADD COLUMN key_outputs TEXT NOT NULL DEFAULT '[]'")
+                logger.info("Added key_outputs column to sessions table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e):
+                    logger.info("key_outputs column already exists")
+                else:
+                    raise
+            
+            # Update schema version to 2
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (2, datetime.now(timezone.utc).isoformat())
+            )
         
         logger.info("Migrations completed successfully")
     

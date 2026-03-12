@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import re
 from loguru import logger
 from alara.agents.base import BaseAgent, AgentResult
 
@@ -46,6 +47,36 @@ but complete. Use plain prose, not bullets.
             k in goal_lower for k in keywords
         )
 
+    def _clean_json(self, raw: str) -> str:
+        """
+        Clean common Gemini JSON output issues
+        before parsing.
+        """
+        # Strip markdown fences
+        raw = re.sub(
+            r'^```(?:json)?\s*', '', raw,
+            flags=re.MULTILINE
+        )
+        raw = re.sub(
+            r'\s*```$', '', raw,
+            flags=re.MULTILINE
+        )
+        raw = raw.strip()
+
+        # If response is truncated (no closing
+        # bracket), try to recover by finding
+        # the last complete object and closing
+        # the array
+        if raw.endswith(','):
+            raw = raw[:-1]
+        if not raw.endswith(']'):
+            # Find last complete JSON object
+            last_close = raw.rfind('}')
+            if last_close != -1:
+                raw = raw[:last_close + 1] + ']'
+
+        return raw
+
     def _plan_tasks(
         self, goal: str
     ) -> list[dict]:
@@ -80,52 +111,55 @@ Respond with ONLY a valid JSON array.
 No markdown, no explanation, no extra text.
 """
 
-        try:
-            client = genai.Client(
-                api_key=self.config.get(
-                    "api_key", ""
+        # Add retry loop for JSON parsing
+        for attempt in range(3):
+            try:
+                client = genai.Client(
+                    api_key=self.config.get(
+                        "api_key", ""
+                    )
                 )
-            )
-            response = client.models\
-                .generate_content(
-                    model=self.config.get(
-                        "model",
-                        "gemini-2.5-flash"
-                    ),
-                    contents=prompt,
-                    config=types\
-                        .GenerateContentConfig(
-                            max_output_tokens=500,
-                            temperature=0.1
-                        )
+                response = client.models\
+                    .generate_content(
+                        model=self.config.get(
+                            "model",
+                            "gemini-2.5-flash"
+                        ),
+                        contents=prompt,
+                        config=types\
+                            .GenerateContentConfig(
+                                max_output_tokens=500,
+                                temperature=0.1
+                            )
+                    )
+
+                text = response.text.strip()
+                cleaned = self._clean_json(text)
+                tasks = json.loads(cleaned)
+                logger.info(
+                    f"[research] Planned "
+                    f"{len(tasks)} tasks: "
+                    f"{[t.get('type') for t in tasks]}"
                 )
+                return tasks[:4]
 
-            text = response.text.strip()
-            if "```" in text:
-                text = text.split(
-                    "```"
-                )[1].strip()
-                if text.startswith("json"):
-                    text = text[4:].strip()
-
-            tasks = json.loads(text)
-            logger.info(
-                f"[research] Planned "
-                f"{len(tasks)} tasks: "
-                f"{[t.get('type') for t in tasks]}"
-            )
-            return tasks[:4]
-
-        except Exception as e:
-            logger.warning(
-                f"[research] Planning failed "
-                f"({e}), using fallback"
-            )
-            return [{
-                "type": "search_web",
-                "query": goal,
-                "purpose": "direct search"
-            }]
+            except json.JSONDecodeError as e:
+                if attempt == 2:
+                    logger.warning(
+                        f"[research] Planning failed "
+                        f"({e}), using fallback"
+                    )
+                    return [{
+                        "type": "search_web",
+                        "query": goal,
+                        "purpose": "direct search"
+                    }]
+                logger.warning(
+                    f"[research] JSON parse failed "
+                    f"(attempt {attempt+1}): {e}, "
+                    f"retrying..."
+                )
+                continue
 
     def _execute_browser_task(
         self,
@@ -313,6 +347,7 @@ the source material."""
                 success=True,
                 steps_completed=len(tasks),
                 steps_total=len(tasks),
+                steps_failed=0,
                 key_outputs=[summary],
                 execution_log=[],
                 error=None
@@ -328,6 +363,7 @@ the source material."""
                 success=False,
                 steps_completed=0,
                 steps_total=1,
+                steps_failed=1,
                 key_outputs=[],
                 execution_log=[],
                 error=str(e)

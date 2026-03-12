@@ -46,6 +46,10 @@ class SkillMemory:
         if not result.success or result.steps_completed < 2:
             return None
         
+        # Don't store if task_graph is None
+        if task_graph is None:
+            return None
+        
         now = datetime.now(timezone.utc).isoformat()
         
         # Generate skill name from goal (first 60 chars, cleaned)

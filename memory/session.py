@@ -49,6 +49,7 @@ class SessionMemory:
             steps_completed=0,
             steps_failed=0,
             execution_log=[],
+            key_outputs=[],
             created_at=now,
             completed_at=None,
         )
@@ -61,26 +62,28 @@ class SessionMemory:
             """
             INSERT INTO sessions (
                 id, session_id, goal, scope, status, steps_total,
-                steps_completed, steps_failed, execution_log, created_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                steps_completed, steps_failed, execution_log, key_outputs, created_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.id, entry.session_id, entry.goal, entry.scope, entry.status,
                 entry.steps_total, entry.steps_completed, entry.steps_failed,
-                json.dumps(entry.execution_log), entry.created_at, entry.completed_at
+                json.dumps(entry.execution_log), json.dumps(entry.key_outputs),
+                entry.created_at, entry.completed_at
             )
         )
         
         logger.debug("Started goal entry {} for goal: {}", entry_id, goal[:50])
         return entry_id
     
-    def complete_goal(self, entry_id: str, result: OrchestratorResult) -> None:
+    def complete_goal(self, entry_id: str, result: OrchestratorResult, key_outputs: list[str] = None) -> None:
         """
         Update the entry when a goal completes.
         
         Args:
             entry_id: The entry ID to update
             result: The execution result
+            key_outputs: Key outputs from AgentResult (optional)
         """
         if entry_id not in self._current:
             logger.warning("Attempted to complete unknown entry: {}", entry_id)
@@ -103,6 +106,10 @@ class SessionMemory:
         entry.steps_failed = result.steps_failed
         entry.execution_log = result.execution_log
         
+        # Update key_outputs if provided
+        if key_outputs is not None:
+            entry.key_outputs = key_outputs
+        
         # Update in memory
         self._current[entry_id] = entry
         
@@ -111,13 +118,13 @@ class SessionMemory:
             """
             UPDATE sessions SET
                 status = ?, completed_at = ?, steps_total = ?,
-                steps_completed = ?, steps_failed = ?, execution_log = ?
+                steps_completed = ?, steps_failed = ?, execution_log = ?, key_outputs = ?
             WHERE id = ?
             """,
             (
                 entry.status, entry.completed_at, entry.steps_total,
                 entry.steps_completed, entry.steps_failed,
-                json.dumps(entry.execution_log), entry_id
+                json.dumps(entry.execution_log), json.dumps(entry.key_outputs), entry_id
             )
         )
         
@@ -147,8 +154,9 @@ class SessionMemory:
         
         entries = []
         for row in results:
-            # Deserialize execution_log from JSON
+            # Deserialize execution_log and key_outputs from JSON
             execution_log = json.loads(row["execution_log"]) if row["execution_log"] else []
+            key_outputs = json.loads(row["key_outputs"]) if row["key_outputs"] else []
             
             entry = SessionEntry(
                 id=row["id"],
@@ -160,6 +168,7 @@ class SessionMemory:
                 steps_completed=row["steps_completed"],
                 steps_failed=row["steps_failed"],
                 execution_log=execution_log,
+                key_outputs=key_outputs,
                 created_at=row["created_at"],
                 completed_at=row["completed_at"],
             )
@@ -185,8 +194,9 @@ class SessionMemory:
         
         entries = []
         for row in results:
-            # Deserialize execution_log from JSON
+            # Deserialize execution_log and key_outputs from JSON
             execution_log = json.loads(row["execution_log"]) if row["execution_log"] else []
+            key_outputs = json.loads(row["key_outputs"]) if row["key_outputs"] else []
             
             entry = SessionEntry(
                 id=row["id"],
@@ -198,6 +208,7 @@ class SessionMemory:
                 steps_completed=row["steps_completed"],
                 steps_failed=row["steps_failed"],
                 execution_log=execution_log,
+                key_outputs=key_outputs,
                 created_at=row["created_at"],
                 completed_at=row["completed_at"],
             )
@@ -230,6 +241,7 @@ class SessionMemory:
         
         row = results[0]
         execution_log = json.loads(row["execution_log"]) if row["execution_log"] else []
+        key_outputs = json.loads(row["key_outputs"]) if row["key_outputs"] else []
         
         return SessionEntry(
             id=row["id"],
@@ -241,6 +253,7 @@ class SessionMemory:
             steps_completed=row["steps_completed"],
             steps_failed=row["steps_failed"],
             execution_log=execution_log,
+            key_outputs=key_outputs,
             created_at=row["created_at"],
             completed_at=row["completed_at"],
         )
@@ -269,6 +282,7 @@ class SessionMemory:
         entries = []
         for row in results:
             execution_log = json.loads(row["execution_log"]) if row["execution_log"] else []
+            key_outputs = json.loads(row["key_outputs"]) if row["key_outputs"] else []
             
             entry = SessionEntry(
                 id=row["id"],
@@ -280,6 +294,7 @@ class SessionMemory:
                 steps_completed=row["steps_completed"],
                 steps_failed=row["steps_failed"],
                 execution_log=execution_log,
+                key_outputs=key_outputs,
                 created_at=row["created_at"],
                 completed_at=row["completed_at"],
             )

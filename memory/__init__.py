@@ -205,7 +205,7 @@ class MemoryManager:
     
     def after_execution(self, goal: str, goal_context: GoalContext,
                         task_graph: TaskGraph, result: OrchestratorResult,
-                        entry_id: str, duration_ms: float) -> None:
+                        entry_id: str, duration_ms: float, key_outputs: list[str] = None) -> None:
         """
         Called after every goal execution completes.
         
@@ -216,10 +216,24 @@ class MemoryManager:
             result: The execution result
             entry_id: The session entry ID
             duration_ms: Execution duration in milliseconds
+            key_outputs: Key outputs from AgentResult (optional)
         """
+        # Add None guards
+        if result is None:
+            logger.warning(
+                "after_execution: result is None, skipping"
+            )
+            return
+        
+        if not hasattr(result, 'success') or not hasattr(result, 'steps_completed'):
+            logger.warning(
+                "after_execution: result missing required attributes"
+            )
+            return
+        
         try:
             # Complete the session entry
-            self.session.complete_goal(entry_id, result)
+            self.session.complete_goal(entry_id, result, key_outputs)
             
             # If successful, store skill and infer preferences
             if result.success:

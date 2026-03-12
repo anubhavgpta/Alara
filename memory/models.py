@@ -20,6 +20,7 @@ class SessionEntry(BaseModel):
     steps_completed: int = Field(description="Number of steps completed")
     steps_failed: int = Field(description="Number of steps failed")
     execution_log: list[dict] = Field(description="Full log from OrchestratorResult")
+    key_outputs: list[str] = Field(default_factory=list, description="Key outputs from AgentResult")
     created_at: str = Field(description="UTC ISO timestamp")
     completed_at: str | None = Field(default=None, description="UTC ISO timestamp")
 
