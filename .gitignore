@@ -1,4 +1,5 @@
 # ── Python ────────────────────────────────────────────────
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -42,6 +43,7 @@ coverage.xml
 htmlcov/
 nosetests.xml
 test-results/
+tests/
 
 # Type checking
 .mypy_cache/
@@ -54,11 +56,14 @@ dmypy.json
 .ipynb_checkpoints
 *.ipynb
 
-# ── Environment & secrets ─────────────────────────────────
+# ── Environment & Secrets ───────────────────────────────────
+# Environment files
 .env
 .env.*
 !.env.example
 *.env
+
+# Secrets and certificates
 secrets.json
 secrets.yaml
 secrets.toml
@@ -66,18 +71,52 @@ secrets.toml
 *.key
 *.cert
 *.p12
+*.pfx
+*.crt
+*.keychain
+.p12
+.p8
 
-# ── Alara specific ────────────────────────────────────────
+# API keys and sensitive config
+api_keys.txt
+api_keys.json
+credentials.json
+config.json
+private_config.json
+.secrets
+.api_keys
+.credentials
+
+# ── Alara Specific ────────────────────────────────────────
+# Database files
 alara.db
 alara.db-wal
 alara.db-shm
 *.db
 *.db-wal
 *.db-shm
+
+# User data and configuration
+.alara/
+.alara/config.json
+.alara/profile.json
+.alara/preferences.json
+.alara/memory.db
+.alara/skills.db
+
+# Logs and output
 logs/
 *.log
 test_results.json
-.alara/config.json
+output/
+results/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+temp/
+tmp/
 
 # ── Node / Electron ───────────────────────────────────────
 node_modules/
@@ -99,7 +138,7 @@ electron/out/
 electron-builder output
 out/
 
-# ── OS ────────────────────────────────────────────────────
+# ── OS Files ─────────────────────────────────────────────────
 # Windows
 Thumbs.db
 Thumbs.db:encdata
@@ -156,16 +195,11 @@ ehthumbs_vista.db
 
 # ── Misc ──────────────────────────────────────────────────
 *.bak
-*.tmp
-*.temp
 *.orig
 *.rej
 *.patch
-.cache/
-tmp/
-temp/
 
-# ── UI Assets ─────────────────────────────────────────────
+# ── UI Assets (if any) ─────────────────────────────────────
 ui/
 electron/ui/
 *.woff
@@ -173,14 +207,3 @@ electron/ui/
 *.ttf
 *.otf
 *.eot
-*.svg
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.ico
-*.webp
-*.mp3
-*.mp4
-*.wav
-*.ogg
