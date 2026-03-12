@@ -352,3 +352,41 @@ class SessionMemory:
             "success_rate": success_rate,
             "most_common_scope": most_common_scope,
         }
+    
+    def get_context_history(self, limit: int = 5) -> list[dict]:
+        """
+        Return recent goals formatted for context resolution. Extracts paths from execution logs.
+        
+        Args:
+            limit: Maximum number of recent entries to return
+            
+        Returns:
+            List of dictionaries containing goal, output, and extracted paths
+        """
+        recent = self.get_recent(limit=limit)
+        history = []
+        for entry in recent:
+            item = {
+                'goal': entry.goal,
+                'output': '',
+                'paths': []
+            }
+            # Extract file paths from execution_log if present
+            if hasattr(entry, 'execution_log') and entry.execution_log:
+                try:
+                    log = json.loads(entry.execution_log) if isinstance(entry.execution_log, str) else entry.execution_log
+                    for step in (log or []):
+                        params = step.get('params', {}) or {}
+                        path = params.get('path')
+                        if path:
+                            item['paths'].append(path)
+                        out = step.get('output', '')
+                        if out:
+                            item['output'] = out
+                except Exception:
+                    pass
+            # Also extract from key_outputs
+            if hasattr(entry, 'key_outputs') and entry.key_outputs:
+                item['output'] = entry.key_outputs[0][:200]
+            history.append(item)
+        return history

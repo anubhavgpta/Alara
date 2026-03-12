@@ -710,8 +710,10 @@ PLANNING RULES (always apply):
             "- If a CLI step could alternatively be done via filesystem, set fallback_strategy to \"use_filesystem\".\n"
             "- If a step is optional and failure should not block the task, set fallback_strategy to \"skip_optional\".\n"
             "- If no fallback exists, set fallback_strategy to null.\n\n"
+            "CRITICAL: If goal or context contains actual text content that should be written to a file, you MUST use that exact text verbatim in the 'content' field. Never use placeholders like <<...>> or {{...}} or [INSERT_CONTENT_HERE]. The content field must contain real text, not a reference to it.\n\n"
+            "IMPORTANT: If the goal contains 'Use this content:' followed by actual text, you MUST extract and use that exact text in the content field. Do not summarize or paraphrase it.\n\n"
             "Respond with raw JSON only. No markdown. No code fences. No explanations.\n"
-            "No text before or after the JSON. The response must parse with json.loads directly.\n"
+            "No text before or after JSON. The response must parse with json.loads directly.\n"
             "Use exactly this schema:\n"
             "{\n"
             '  "steps": [\n'

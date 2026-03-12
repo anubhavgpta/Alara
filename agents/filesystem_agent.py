@@ -1,5 +1,5 @@
+from loguru import logger
 from alara.agents.base import BaseAgent
-
 
 class FilesystemAgent(BaseAgent):
     name = "filesystem"
@@ -38,3 +38,31 @@ class FilesystemAgent(BaseAgent):
             return True
         
         return any(keyword in goal_lower for keyword in filesystem_keywords)
+
+    def run(self, goal: str, chain_context=None, memory_context=None, injected_content: str | None = None):
+        """
+        Override run to handle injected content directly.
+        If injected_content is provided, use it as the result.
+        """
+        self._ensure_initialized()
+        logger.info(
+            f"[filesystem] Starting: {goal[:60]}"
+        )
+        
+        # If injected content is provided, return it directly
+        if injected_content is not None:
+            logger.info(f"[filesystem] Using injected content directly ({len(injected_content)} chars)")
+            return AgentResult(
+                agent_name=self.name,
+                goal=goal,
+                success=True,
+                steps_completed=1,
+                steps_total=1,
+                steps_failed=0,
+                key_outputs=[injected_content],
+                execution_log=[],
+                error=None
+            )
+        
+        # Otherwise, call parent run method
+        return super().run(goal, chain_context, memory_context)

@@ -314,7 +314,8 @@ the source material."""
         self,
         goal: str,
         chain_context=None,
-        memory_context=None
+        memory_context=None,
+        injected_content: str | None = None
     ) -> AgentResult:
 
         self._ensure_initialized()
@@ -324,6 +325,21 @@ the source material."""
         )
 
         try:
+            # If injected_content is provided, use it directly instead of planning
+            if injected_content is not None:
+                logger.info("[research] Using injected content directly")
+                return AgentResult(
+                    agent_name=self.name,
+                    goal=goal,
+                    success=True,
+                    steps_completed=1,
+                    steps_total=1,
+                    steps_failed=0,
+                    key_outputs=[injected_content],
+                    execution_log=[],
+                    error=None
+                )
+            
             # Plan tasks
             tasks = self._plan_tasks(goal)
 

@@ -13,7 +13,7 @@ from alara.capabilities.base import CapabilityResult
 from alara.core.execution_router import ExecutionRouter
 from alara.core.reflector import ReflectionResult, Reflector
 from alara.core.verifier import VerificationResult, Verifier
-from alara.schemas.task_graph import StepStatus, TaskGraph
+from alara.schemas.task_graph import StepStatus, TaskGraph, Step
 
 
 @dataclass
@@ -64,6 +64,22 @@ class Orchestrator:
                 # Resolve code edit placeholders if needed
                 if step.operation == "edit_file":
                     step = self._resolve_code_edit(step, execution_log)
+                elif step.operation == "create_file":
+                    # Extract injected content from previous wave results
+                    injected_content = ""
+                    # Get content from the most recent research result in execution_log
+                    for log_entry in reversed(execution_log):
+                        if log_entry.get("success") and log_entry.get("output"):
+                            # Found research output, use it directly
+                            injected_content = log_entry["output"]
+                            break
+                        elif log_entry.get("key_outputs"):
+                            # Check key_outputs from research agent
+                            for output in log_entry["key_outputs"]:
+                                if len(output) > 50:  # Use substantial content
+                                    injected_content = output
+                                    break
+                    step = self._resolve_content_placeholder(step, injected_content)
                 
                 # Execute step
                 capability_result = self.router.route(step)
@@ -316,4 +332,41 @@ class Orchestrator:
                 anchor
             )
         
+        return step
+
+    def _resolve_content_placeholder(self, step: Any, injected_content: str) -> Any:
+        """
+        For create_file steps with content placeholders,
+        substitute the actual injected content.
+        """
+        # Only act on create_file steps with content placeholders
+        if not isinstance(step, Step) or step.operation != "create_file":
+            return step
+        
+        content = step.params.get("content", "")
+        
+        # Check for common placeholder patterns
+        placeholder_patterns = [
+            "<<PROVIDED_CONTENT_FOR_",
+            "<<RESEARCH_FINDINGS_CONTENT>>",
+            "<<RESEARCH_FINDINGS_CONTENT_FROM_PREVIOUS_STEP>>",
+            "<<INSERT_CONTENT_HERE>>",
+            "{{CONTENT}}",
+            "[INSERT_CONTENT_HERE]",
+            "<<READ_FIRST:",
+            "<<SYNTHESIZE_AND_SUMMARIZE:"
+        ]
+        
+        # Handle <<READ_FIRST>> and similar patterns
+        if "<<READ_FIRST:" in content or "<<SYNTHESIZE_AND_SUMMARIZE:" in content or "<<RESEARCH_FINDINGS_CONTENT_FROM_PREVIOUS_STEP>>" in content:
+            # Replace with injected content directly
+            step.params["content"] = injected_content
+            return step
+        
+        has_placeholder = any(pattern in content for pattern in placeholder_patterns)
+        if not has_placeholder:
+            return step
+        
+        # Replace with injected content
+        step.params["content"] = injected_content
         return step

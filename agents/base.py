@@ -109,7 +109,8 @@ class BaseAgent:
         self,
         goal: str,
         chain_context: Optional[ChainContext] = None,
-        memory_context=None
+        memory_context=None,
+        injected_content: str | None = None
     ) -> AgentResult:
         """
         Full plan → execute loop for one goal.
@@ -123,9 +124,14 @@ class BaseAgent:
             # Extract any additional context from the goal
             # (e.g., previous agent outputs injected by MasterOrchestrator)
             code_context = None
-            if "\n\nUse the following content from previous steps:" in goal:
+            
+            # Priority 1: Use injected_content if provided
+            if injected_content is not None:
+                actual_goal = goal
+                code_context = injected_content
+            elif "\n\nUse this content:" in goal:
                 # Split the goal to extract the context
-                parts = goal.split("\n\nUse the following content from previous steps:")
+                parts = goal.split("\n\nUse this content:")
                 actual_goal = parts[0].strip()
                 context_content = parts[1].strip()
                 code_context = context_content

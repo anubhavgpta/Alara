@@ -20,6 +20,7 @@ from rich.text import Text
 
 from alara.core.chain import ChainContext, PlanResult
 from alara.core.code_context import CodeContextBuilder
+from alara.core.context_resolver import ContextResolver
 from alara.core.goal_understander import GoalUnderstander
 from alara.core.master_orchestrator import MasterOrchestrator
 from alara.core.orchestrator import Orchestrator
@@ -250,6 +251,19 @@ def _run_goal(
     import time
     
     memory = MemoryManager.get_instance()
+    
+    # Resolve context references
+    resolver = ContextResolver(master.config)
+    if resolver.needs_resolution(goal):
+        history = memory.session.get_context_history(limit=5)
+        resolved_goal = resolver.resolve(goal, history)
+        if resolved_goal != goal:
+            logger.info(
+                f"Context resolved: "
+                f"'{goal}' → "
+                f"'{resolved_goal}'"
+            )
+            goal = resolved_goal
     
     # Start goal session
     goal_understander = GoalUnderstander(
