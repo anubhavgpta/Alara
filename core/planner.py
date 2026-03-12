@@ -12,9 +12,9 @@ from typing import Any
 from google import genai
 from loguru import logger
 
-from alara.schemas.goal import GoalContext
-from alara.schemas.task_graph import Step, TaskGraph
-from alara.memory.models import MemoryContext
+from schemas.goal import GoalContext
+from schemas.task_graph import Step, TaskGraph
+from memory.models import MemoryContext
 
 
 class PlanningError(Exception):
@@ -36,7 +36,7 @@ class Planner:
             self.api_key = os.getenv("GEMINI_API_KEY")
             if not self.api_key:
                 try:
-                    from alara.utils.paths import get_config_path
+                    from utils.paths import get_config_path
                     import json
                     with open(get_config_path()) as f:
                         config = json.load(f)
@@ -57,7 +57,7 @@ class Planner:
             model_name = os.getenv("GEMINI_MODEL")
             if not model_name:
                 try:
-                    from alara.utils.paths import get_config_path
+                    from utils.paths import get_config_path
                     import json
                     with open(get_config_path()) as f:
                         config = json.load(f)

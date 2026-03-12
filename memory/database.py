@@ -33,7 +33,7 @@ class DatabaseManager:
     
     def __init__(self) -> None:
         """Initialize the database manager."""
-        from alara.utils.paths import get_db_path
+        from utils.paths import get_db_path
         self._db_path = get_db_path()
         self._migrate_legacy_db()
         self._initialize()

@@ -10,8 +10,8 @@ from typing import Any
 from google import genai
 from loguru import logger
 
-from alara.capabilities.base import CapabilityResult
-from alara.schemas.task_graph import Step, TaskGraph
+from capabilities.base import CapabilityResult
+from schemas.task_graph import Step, TaskGraph
 
 
 @dataclass
@@ -29,7 +29,7 @@ class Reflector:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             try:
-                from alara.utils.paths import get_config_path
+                from utils.paths import get_config_path
                 import json
                 with open(get_config_path()) as f:
                     config = json.load(f)
@@ -48,7 +48,7 @@ class Reflector:
         model_name = os.getenv("GEMINI_MODEL")
         if not model_name:
             try:
-                from alara.utils.paths import get_config_path
+                from utils.paths import get_config_path
                 import json
                 with open(get_config_path()) as f:
                     config = json.load(f)

@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional, Union
-from alara.core.planner import Planner
-from alara.core.orchestrator import Orchestrator
-from alara.core.goal_understander import GoalUnderstander
-from alara.core.chain import ChainContext
-from alara.memory import MemoryManager
-from alara.schemas.goal import GoalContext
-from alara.schemas.task_graph import TaskGraph
+from core.planner import Planner
+from core.orchestrator import Orchestrator
+from core.goal_understander import GoalUnderstander
+from core.chain import ChainContext
+from memory import MemoryManager
+from schemas.goal import GoalContext
+from schemas.task_graph import TaskGraph
 from loguru import logger
 
 
@@ -60,10 +60,10 @@ class BaseAgent:
         if self._initialized:
             return
 
-        from alara.core.goal_understander \
+        from core.goal_understander \
             import GoalUnderstander
-        from alara.core.planner import Planner
-        from alara.core.orchestrator import Orchestrator
+        from core.planner import Planner
+        from core.orchestrator import Orchestrator
 
         model = self.config.get(
             "model", "gemini-2.5-flash"

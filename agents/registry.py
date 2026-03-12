@@ -4,14 +4,14 @@ from pathlib import Path
 from typing import Type
 from loguru import logger
 
-from alara.agents.base import BaseAgent
-from alara.agents.coding_agent import CodingAgent
-from alara.agents.document_agent import DocumentAgent
-from alara.agents.research_agent import ResearchAgent
-from alara.agents.writing_agent import WritingAgent
-from alara.agents.filesystem_agent import FilesystemAgent
-from alara.agents.browser_agent import BrowserAgent
-from alara.agents.comms_agent import CommsAgent
+from agents.base import BaseAgent
+from agents.coding_agent import CodingAgent
+from agents.document_agent import DocumentAgent
+from agents.research_agent import ResearchAgent
+from agents.writing_agent import WritingAgent
+from agents.filesystem_agent import FilesystemAgent
+from agents.browser_agent import BrowserAgent
+from agents.comms_agent import CommsAgent
 
 # Map use_case keys from profile.json to agent classes that serve them
 USE_CASE_AGENT_MAP: dict[str, list[str]] = {

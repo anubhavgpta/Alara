@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-from alara.capabilities.base import BaseCapability, CapabilityResult
+from capabilities.base import BaseCapability, CapabilityResult
 
 
 # Minimum character count for search results to be considered useful

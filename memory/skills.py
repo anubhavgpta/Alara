@@ -10,11 +10,11 @@ from typing import Any
 
 from loguru import logger
 
-from alara.core.orchestrator import OrchestratorResult
-from alara.memory.database import DatabaseManager
-from alara.memory.models import SkillEntry
-from alara.schemas.goal import GoalContext
-from alara.schemas.task_graph import TaskGraph
+from core.orchestrator import OrchestratorResult
+from memory.database import DatabaseManager
+from memory.models import SkillEntry
+from schemas.goal import GoalContext
+from schemas.task_graph import TaskGraph
 
 
 class SkillMemory:

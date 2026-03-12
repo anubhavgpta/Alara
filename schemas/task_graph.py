@@ -9,7 +9,7 @@ from typing import Any, Literal
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from alara.schemas.goal import GoalContext
+from schemas.goal import GoalContext
 
 
 class StepType(str, Enum):

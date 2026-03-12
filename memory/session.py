@@ -9,10 +9,10 @@ from typing import Any
 
 from loguru import logger
 
-from alara.core.orchestrator import OrchestratorResult
-from alara.memory.database import DatabaseManager
-from alara.memory.models import SessionEntry
-from alara.schemas.goal import GoalContext
+from core.orchestrator import OrchestratorResult
+from memory.database import DatabaseManager
+from memory.models import SessionEntry
+from schemas.goal import GoalContext
 
 
 class SessionMemory:

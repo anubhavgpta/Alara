@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from loguru import logger
 
-from alara.capabilities.base import BaseCapability, CapabilityResult
-from alara.capabilities.cli import CLICapability
-from alara.capabilities.code import CodeCapability
-from alara.capabilities.filesystem import FilesystemCapability
-from alara.capabilities.system import SystemCapability
-from alara.capabilities.document import DocumentCapability
-from alara.schemas.task_graph import Step, StepType
+from capabilities.base import BaseCapability, CapabilityResult
+from capabilities.cli import CLICapability
+from capabilities.code import CodeCapability
+from capabilities.filesystem import FilesystemCapability
+from capabilities.system import SystemCapability
+from capabilities.document import DocumentCapability
+from schemas.task_graph import Step, StepType
 
 
 class ExecutionRouter:
@@ -72,12 +72,12 @@ class ExecutionRouter:
             
             # Route browser operations directly to BrowserCapability
             if step.operation in self.BROWSER_OPS or step.step_type == StepType.BROWSER:
-                from alara.capabilities.browser import BrowserCapability
+                from capabilities.browser import BrowserCapability
                 return BrowserCapability(self.config).execute(step.operation, step.params)
             
             # Route Composio operations directly to ComposioCapability
             if step.operation in self.COMPOSIO_OPS or step.step_type == StepType.APP_ADAPTER or step.step_type == StepType.COMMS:
-                from alara.capabilities.composio_capability import ComposioCapability
+                from capabilities.composio_capability import ComposioCapability
                 return ComposioCapability(self.config).execute(step.operation, step.params)
             
             # Route code operations directly to CodeCapability
@@ -105,7 +105,7 @@ class ExecutionRouter:
                 return self.document.execute(step.operation, step.params)
 
             elif step.step_type == StepType.BROWSER:
-                from alara.capabilities.browser import BrowserCapability
+                from capabilities.browser import BrowserCapability
                 return BrowserCapability(self.config).execute(step.operation, step.params)
 
             elif step.step_type == StepType.APP_ADAPTER:

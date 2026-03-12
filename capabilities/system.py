@@ -9,7 +9,7 @@ from typing import Any
 import psutil
 from loguru import logger
 
-from alara.capabilities.base import BaseCapability, CapabilityResult
+from capabilities.base import BaseCapability, CapabilityResult
 
 
 class SystemCapability(BaseCapability):

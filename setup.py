@@ -18,7 +18,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
 
-from alara.utils.paths import (
+from utils.paths import (
     get_config_path,
     get_profile_path,
     get_alara_dir

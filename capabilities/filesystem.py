@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from alara.capabilities.base import BaseCapability, CapabilityResult
+from capabilities.base import BaseCapability, CapabilityResult
 
 
 class FilesystemCapability(BaseCapability):

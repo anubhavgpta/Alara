@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from alara.capabilities.base import BaseCapability, CapabilityResult
+from capabilities.base import BaseCapability, CapabilityResult
 
 
 class CodeCapability(BaseCapability):

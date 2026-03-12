@@ -9,7 +9,7 @@ import re
 from google import genai
 from loguru import logger
 
-from alara.schemas.goal import GoalContext
+from schemas.goal import GoalContext
 
 
 class GoalUnderstander:
@@ -28,7 +28,7 @@ class GoalUnderstander:
             self.api_key = os.getenv("GEMINI_API_KEY")
             if not self.api_key:
                 try:
-                    from alara.utils.paths import get_config_path
+                    from utils.paths import get_config_path
                     import json
                     with open(get_config_path()) as f:
                         config = json.load(f)

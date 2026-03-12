@@ -11,10 +11,10 @@ from typing import Any
 
 from loguru import logger
 
-from alara.memory.database import DatabaseManager
-from alara.memory.models import PreferenceEntry
-from alara.schemas.goal import GoalContext
-from alara.schemas.task_graph import TaskGraph
+from memory.database import DatabaseManager
+from memory.models import PreferenceEntry
+from schemas.goal import GoalContext
+from schemas.task_graph import TaskGraph
 
 
 class PreferenceMemory:

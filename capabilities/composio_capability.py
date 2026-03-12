@@ -5,7 +5,7 @@ from loguru import logger
 import json
 
 # Import CapabilityResult from filesystem
-from alara.capabilities.filesystem import (
+from capabilities.filesystem import (
     CapabilityResult
 )
 

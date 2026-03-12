@@ -18,18 +18,18 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from alara.core.chain import ChainContext, PlanResult
-from alara.core.code_context import CodeContextBuilder
-from alara.core.context_resolver import ContextResolver
-from alara.core.goal_understander import GoalUnderstander
-from alara.core.master_orchestrator import MasterOrchestrator
-from alara.core.orchestrator import Orchestrator
-from alara.core.planner import Planner, PlanningError
-from alara.agents.registry import AgentRegistry
-from alara.memory import MemoryManager
-from alara.schemas.goal import GoalContext
-from alara.schemas.task_graph import StepStatus, TaskGraph
-from alara.utils.paths import is_setup_complete, get_log_path, get_config_path, get_profile_path
+from core.chain import ChainContext, PlanResult
+from core.code_context import CodeContextBuilder
+from core.context_resolver import ContextResolver
+from core.goal_understander import GoalUnderstander
+from core.master_orchestrator import MasterOrchestrator
+from core.orchestrator import Orchestrator
+from core.planner import Planner, PlanningError
+from agents.registry import AgentRegistry
+from memory import MemoryManager
+from schemas.goal import GoalContext
+from schemas.task_graph import StepStatus, TaskGraph
+from utils.paths import is_setup_complete, get_log_path, get_config_path, get_profile_path
 
 
 VERSION = "v0.4.1"
@@ -64,7 +64,7 @@ def _show_home_screen() -> None:
         connected_services = []
         if "comms" in active:
             try:
-                from alara.capabilities.composio_capability import ComposioCapability
+                from capabilities.composio_capability import ComposioCapability
                 cap = ComposioCapability(config)
                 connected_services = cap.discover_and_cache()
             except Exception:
@@ -245,8 +245,8 @@ def _run_goal(
     chain_context: ChainContext = None
 ) -> list:
     """Run a goal using the master orchestrator."""
-    from alara.memory import MemoryManager
-    from alara.core.goal_understander import GoalUnderstander
+    from memory import MemoryManager
+    from core.goal_understander import GoalUnderstander
     from datetime import datetime
     import time
     
@@ -284,7 +284,7 @@ def _run_goal(
         all_key_outputs.extend(result.key_outputs)
     
     # Create OrchestratorResult for memory logging
-    from alara.core.orchestrator import OrchestratorResult
+    from core.orchestrator import OrchestratorResult
     total_steps = sum(r.steps_total for r in results)
     completed_steps = sum(r.steps_completed for r in results)
     failed_steps = sum(r.steps_failed for r in results)
@@ -379,7 +379,7 @@ def cli_entry() -> int:
     # Check if setup is complete
     if not is_setup_complete():
         console.print("[yellow]Alara is not set up yet.[/yellow]")
-        from alara.setup import run_setup
+        from setup import run_setup
         run_setup()
         return 0
     

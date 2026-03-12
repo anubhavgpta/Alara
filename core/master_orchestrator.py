@@ -5,11 +5,11 @@ from itertools import groupby
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
-from alara.agents.registry import AgentRegistry
-from alara.agents.base import BaseAgent, AgentResult
-from alara.core.goal_understander import GoalUnderstander
-from alara.core.chain import ChainContext
-from alara.schemas.goal import GoalContext
+from agents.registry import AgentRegistry
+from agents.base import BaseAgent, AgentResult
+from core.goal_understander import GoalUnderstander
+from core.chain import ChainContext
+from schemas.goal import GoalContext
 
 
 class MasterOrchestrator:

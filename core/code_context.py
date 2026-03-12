@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from alara.capabilities.code import CodeCapability
+from capabilities.code import CodeCapability
 
 
 class CodeContextBuilder:

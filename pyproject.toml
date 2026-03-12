@@ -16,9 +16,10 @@ dependencies = [
 ]
 
 [project.scripts]
-alara = "alara.main:cli_entry"
-alara-setup = "alara.setup:run_setup"
+alara = "main:cli_entry"
+alara-setup = "setup:run_setup"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["alara*"]
+include = ["agents*", "capabilities*", "core*", "memory*", "schemas*", "utils*"]
+exclude = ["tests*"]

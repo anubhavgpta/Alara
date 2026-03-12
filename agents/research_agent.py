@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import re
 from loguru import logger
-from alara.agents.base import BaseAgent, AgentResult
+from agents.base import BaseAgent, AgentResult
 
 class ResearchAgent(BaseAgent):
 
@@ -172,7 +172,7 @@ No markdown, no explanation, no extra text.
         avoid unwanted file-saving side effects
         and to get the raw capability output.
         """
-        from alara.capabilities.browser import (
+        from capabilities.browser import (
             BrowserCapability
         )
 

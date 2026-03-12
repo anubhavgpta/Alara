@@ -8,9 +8,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from alara.capabilities.base import CapabilityResult
-from alara.capabilities.system import SystemCapability
-from alara.schemas.task_graph import Step
+from capabilities.base import CapabilityResult
+from capabilities.system import SystemCapability
+from schemas.task_graph import Step
 
 
 @dataclass

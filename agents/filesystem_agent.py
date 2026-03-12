@@ -1,5 +1,5 @@
 from loguru import logger
-from alara.agents.base import BaseAgent
+from agents.base import BaseAgent
 
 class FilesystemAgent(BaseAgent):
     name = "filesystem"

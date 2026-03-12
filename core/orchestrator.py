@@ -9,11 +9,11 @@ from typing import Any
 
 from loguru import logger
 
-from alara.capabilities.base import CapabilityResult
-from alara.core.execution_router import ExecutionRouter
-from alara.core.reflector import ReflectionResult, Reflector
-from alara.core.verifier import VerificationResult, Verifier
-from alara.schemas.task_graph import StepStatus, TaskGraph, Step
+from capabilities.base import CapabilityResult
+from core.execution_router import ExecutionRouter
+from core.reflector import ReflectionResult, Reflector
+from core.verifier import VerificationResult, Verifier
+from schemas.task_graph import StepStatus, TaskGraph, Step
 
 
 @dataclass
@@ -104,7 +104,7 @@ class Orchestrator:
                 if verification_result.passed:
                     # Step succeeded
                     step.status = StepStatus.DONE
-                    from alara.schemas.task_graph import StepResult, ExecutionLayer
+                    from schemas.task_graph import StepResult, ExecutionLayer
                     step_result = StepResult(
                         step_id=step.id,
                         success=True,
@@ -259,7 +259,7 @@ class Orchestrator:
         substitute the actual file content from the most
         recent successful read_file step in execution_log.
         """
-        from alara.schemas.task_graph import Step
+        from schemas.task_graph import Step
         
         # Only act on edit_file steps with the placeholder
         if not isinstance(step, Step) or step.operation != "edit_file":

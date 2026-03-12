@@ -8,14 +8,14 @@ from typing import Any
 
 from loguru import logger
 
-from alara.core.orchestrator import OrchestratorResult
-from alara.memory.database import DatabaseManager
-from alara.memory.models import MemoryContext
-from alara.memory.preferences import PreferenceMemory
-from alara.memory.session import SessionMemory
-from alara.memory.skills import SkillMemory
-from alara.schemas.goal import GoalContext
-from alara.schemas.task_graph import TaskGraph
+from core.orchestrator import OrchestratorResult
+from memory.database import DatabaseManager
+from memory.models import MemoryContext
+from memory.preferences import PreferenceMemory
+from memory.session import SessionMemory
+from memory.skills import SkillMemory
+from schemas.goal import GoalContext
+from schemas.task_graph import TaskGraph
 
 
 class MemoryManager:
@@ -94,7 +94,7 @@ class MemoryManager:
         
         # Add user profile if available
         try:
-            from alara.utils.paths import get_profile_path
+            from utils.paths import get_profile_path
             import json
             with open(get_profile_path()) as f:
                 profile = json.load(f)

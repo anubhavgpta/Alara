@@ -1,4 +1,4 @@
-from alara.agents.base import BaseAgent
+from agents.base import BaseAgent
 
 
 class WritingAgent(BaseAgent):
