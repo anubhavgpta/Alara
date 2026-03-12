@@ -28,6 +28,23 @@ class CodingAgent(BaseAgent):
             "[coding] RicaAgent initialized"
         )
 
+    def can_handle(self, goal: str, scope: str) -> bool:
+        coding_keywords = [
+            "code", "script", "function", "class",
+            "app", "api", "project", "debug", "fix",
+            "install", "pip", "venv", "python",
+            "javascript", "typescript", "fastapi",
+            "flask", "django", "build", "develop",
+            "implement", "create", "write", "program"
+        ]
+        
+        goal_lower = goal.lower()
+        
+        if scope in ("app", "mixed", "cli"):
+            return True
+        
+        return any(keyword in goal_lower for keyword in coding_keywords)
+
     def run(
         self,
         goal: str,
