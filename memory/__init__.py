@@ -218,16 +218,20 @@ class MemoryManager:
             duration_ms: Execution duration in milliseconds
             key_outputs: Key outputs from AgentResult (optional)
         """
-        # Add None guards
+        # Guard: None result
         if result is None:
-            logger.warning(
-                "after_execution: result is None, skipping"
+            logger.debug(
+                "after_execution: skipping — "
+                "result is None"
             )
             return
-        
-        if not hasattr(result, 'success') or not hasattr(result, 'steps_completed'):
-            logger.warning(
-                "after_execution: result missing required attributes"
+
+        # Guard: wrong type / missing attributes
+        if not hasattr(result, 'steps_completed'):
+            logger.debug(
+                f"after_execution: skipping — "
+                f"{type(result).__name__} has no "
+                f"steps_completed attr"
             )
             return
         
