@@ -73,23 +73,40 @@ class CodingAgent(BaseAgent):
         import re
         
         project_dir = None
+        alara_root = Path(__file__).parent.parent
         
-        # Try to extract path from goal for existing files
+        # Match absolute Windows path OR relative path with /
         path_match = re.search(
-            r'[A-Za-z0-9_.\\/-]+\.[a-z]{2,4}',
+            r'([A-Za-z]:\\[^\s]+\.[a-z]{2,4}'   # absolute Windows
+            r'|[A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+\.[a-z]{2,4})',  # relative with /
             goal
         )
         if path_match:
             candidate = Path(path_match.group())
-            if not candidate.is_absolute():
-                # Relative path — resolve against ALARA project root
-                alara_root = Path(__file__).parent.parent
+            if candidate.is_absolute():
+                # Absolute path — walk up to find
+                # a directory that looks like a
+                # project root (has pyproject.toml
+                # or is under Desktop/Projects)
+                for parent in [candidate.parent,
+                               *candidate.parents]:
+                    if (parent / "pyproject.toml").exists() \
+                            or (parent / "setup.py").exists():
+                        project_dir = str(parent)
+                        logger.info(
+                            f"[coding] Resolved project_dir"
+                            f" from absolute path: {project_dir}"
+                        )
+                        break
+            else:
+                # Relative path — resolve against
+                # ALARA root
                 resolved = alara_root / candidate
                 if resolved.exists():
                     project_dir = str(alara_root)
                     logger.info(
                         f"[coding] Resolved project_dir"
-                        f" from path in goal: {project_dir}"
+                        f" from relative path: {project_dir}"
                     )
         
         logger.info(

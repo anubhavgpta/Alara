@@ -30,3 +30,5 @@ python-dotenv>=1.0.1
 loguru>=0.7.2
 rich>=13.7.1
 requests>=2.31.0
+
+pytest

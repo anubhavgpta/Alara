@@ -1,14 +1,16 @@
-"""Filesystem capability for file and folder operations via pathlib."""
 
 from __future__ import annotations
-
 import shutil
 from pathlib import Path
 from typing import Any
-
 from loguru import logger
-
 from capabilities.base import BaseCapability, CapabilityResult
+
+"""Filesystem capability for file and folder operations via pathlib."""
+
+
+
+
 
 
 class FilesystemCapability(BaseCapability):
@@ -83,17 +85,18 @@ class FilesystemCapability(BaseCapability):
                 path_string = str(Path.home()) + path_string[1:] if path_string.startswith("~") else path_string[2:]
 
             # Step 3 — Expand any remaining ~ using pathlib
+            # This handles ~ and ~/ correctly, making it absolute if it starts with ~
             result = Path(path_string).expanduser()
 
-            # Step 4 — Anchor relative paths to home directory
-            if result.is_absolute():
-                return result
-            else:
-                return Path.home() / result
+            # Step 4 — Anchor relative paths to current working directory if not already absolute
+            if not result.is_absolute():
+                result = Path.cwd() / result
+
+            return result
 
         except Exception as exc:
             logger.warning("Path resolution failed for '{}': {}", path, exc)
-            return Path.home()
+            return Path.cwd() # Fallback to current working directory
 
     def _create_directory(self, params: dict[str, Any]) -> CapabilityResult:
         path = self._resolve(str(params.get("path", "")))
