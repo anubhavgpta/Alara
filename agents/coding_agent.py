@@ -35,7 +35,9 @@ class CodingAgent(BaseAgent):
             "install", "pip", "venv", "python",
             "javascript", "typescript", "fastapi",
             "flask", "django", "build", "develop",
-            "implement", "create", "write", "program"
+            "implement", "create", "write", "program",
+            "add", "modify", "update", "append", "edit",
+            "file", "path", "directory", "folder"
         ]
         
         goal_lower = goal.lower()
@@ -64,16 +66,49 @@ class CodingAgent(BaseAgent):
             .replace("/", "_")
             .strip("_")
         )
-
+        
+        # Resolve project_dir intelligently for existing files
+        import os
+        from pathlib import Path
+        import re
+        
+        project_dir = None
+        
+        # Try to extract path from goal for existing files
+        path_match = re.search(
+            r'[A-Za-z0-9_.\\/-]+\.[a-z]{2,4}',
+            goal
+        )
+        if path_match:
+            candidate = Path(path_match.group())
+            if not candidate.is_absolute():
+                # Relative path — resolve against ALARA project root
+                alara_root = Path(__file__).parent.parent
+                resolved = alara_root / candidate
+                if resolved.exists():
+                    project_dir = str(alara_root)
+                    logger.info(
+                        f"[coding] Resolved project_dir"
+                        f" from path in goal: {project_dir}"
+                    )
+        
         logger.info(
             f"[coding] Delegating to Rica: "
             f"{goal[:60]}"
         )
+        
+        # Pass project_dir to Rica if resolved
+        rica_params = {
+            "goal": goal,
+            "workspace_name": ws_name,
+        }
+        if project_dir:
+            rica_params["project_dir"] = project_dir
+            logger.info(
+                f"[coding] Project directory: {project_dir}"
+            )
 
-        result: RicaResult = self.rica.run(
-            goal,
-            workspace_name=ws_name,
-        )
+        result: RicaResult = self.rica.run(**rica_params)
 
         if result.success:
             summary = (
@@ -108,7 +143,6 @@ class CodingAgent(BaseAgent):
                     "description": goal,
                     "attempt": 1,
                     "success": True,
-                    "output": summary,
                     "error": None,
                     "verified": True,
                     "workspace": result.workspace_dir,
@@ -133,7 +167,6 @@ class CodingAgent(BaseAgent):
                     "description": goal,
                     "attempt": 1,
                     "success": False,
-                    "output": "",
                     "error": result.error,
                     "verified": False,
                     "workspace": result.workspace_dir,

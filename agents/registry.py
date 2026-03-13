@@ -141,6 +141,14 @@ class AgentRegistry:
         Initializes agent if not yet warm.
         Iterates registered agents in priority order and returns first match.
         """
+        # Define file editing keywords for coding agent
+        EDIT_KEYWORDS = [
+            'add', 'append', 'insert', 'modify',
+            'change', 'update', 'refactor', 'rename',
+            'delete', 'remove', 'fix', 'implement',
+            'create', 'build', 'write', 'generate',
+        ]
+        
         for name in AGENT_PRIORITY:
             if name not in self._registered:
                 continue
@@ -172,6 +180,23 @@ class AgentRegistry:
                         f"Selected agent: "
                         f"{name} for goal: "
                         f"{goal[:50]}"
+                    )
+                    return agent
+
+        # Enhanced routing logic for filesystem vs coding agent
+        if scope == 'filesystem':
+            goal_lower = goal.lower()
+            has_edit_keyword = any(keyword in goal_lower for keyword in EDIT_KEYWORDS)
+            
+            if has_edit_keyword:
+                # Route to coding agent for file modification tasks
+                logger.debug(
+                    f"[registry] scope={scope}, edit_keywords_match={has_edit_keyword} → coding"
+                )
+                agent = self._get_or_init("coding")
+                if agent:
+                    logger.info(
+                        f"Selected agent: coding for goal: {goal[:50]}"
                     )
                     return agent
 

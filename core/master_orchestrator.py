@@ -101,7 +101,7 @@ class MasterOrchestrator:
 
             # Execute wave in parallel
             wave_results = self._run_wave(
-                wave_tasks, collected_outputs
+                wave_tasks, collected_outputs, goal_ctx
             )
 
             # Collect outputs for next wave
@@ -283,7 +283,8 @@ class MasterOrchestrator:
     def _run_wave(
         self,
         tasks: List[Dict[str, Any]],
-        prior_outputs: List[str]
+        prior_outputs: List[str],
+        goal_ctx: GoalContext = None
     ) -> List[AgentResult]:
         """
         Run all tasks in this wave in parallel
@@ -328,6 +329,13 @@ class MasterOrchestrator:
                 # Fallback to select_agent
                 agent = self.registry.select_agent(
                     sub_goal, None
+                )
+            
+            # Pass working_directory to coding agent if available
+            if hasattr(agent, 'rica') and goal_ctx and goal_ctx.working_directory:
+                agent._project_dir = goal_ctx.working_directory
+                logger.info(
+                    f"[orchestrator] Set project_dir for {agent_name}: {goal_ctx.working_directory}"
                 )
             
             return agent.run(
