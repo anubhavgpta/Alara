@@ -19,6 +19,10 @@ def set_secret(key: str, value: str) -> None:
     keyring.set_password(_SERVICE, key, value)
 
 
+# Alias used by Composio setup code.
+store_secret = set_secret
+
+
 def get_secret(key: str) -> str | None:
     """Retrieve a secret from the system keyring. Returns None if not found."""
     logger.debug("Getting secret: %s", key)

@@ -3,7 +3,6 @@
 import logging
 
 from alara.core.gemini import GeminiClient
-from alara.security import permissions
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +20,6 @@ Question: {query}
 def research(query: str, client: GeminiClient) -> str:
     """Answer a research query using Gemini's knowledge base.
 
-    Requires user confirmation before making the API call.
-
     Args:
         query: The research question or topic.
         client: Initialised GeminiClient.
@@ -30,10 +27,6 @@ def research(query: str, client: GeminiClient) -> str:
     Returns:
         A formatted response string, prefixed with an L0 scope note.
     """
-    if not permissions.confirm_action("Send research query to Gemini API"):
-        logger.debug("Research query cancelled by user")
-        return "Research cancelled."
-
     prompt = _RESEARCH_PROMPT.format(query=query)
     logger.debug("Sending research query: %s", query)
     response = client.chat(prompt, history=[])

@@ -10,12 +10,23 @@ logger = logging.getLogger(__name__)
 
 _VALID_INTENTS = frozenset(
     {
+        # L0 intents
         "research",
         "file_read",
         "file_write",
         "file_list",
         "write_draft",
         "write_edit",
+        # L1 external / Composio intents
+        "comms_list",
+        "comms_read",
+        "comms_send",
+        "comms_search",
+        "calendar_list",
+        "calendar_create",
+        "task_list",
+        "task_create",
+        # Fallback
         "chat",
         "unknown",
     }
@@ -25,26 +36,88 @@ _CLASSIFICATION_PROMPT = """\
 You are an intent classifier for a personal desktop AI assistant called Alara.
 
 Classify the following user message into exactly one of these intents:
+
+Core intents:
 - research       : user wants information, an explanation, or a knowledge-based answer
 - file_read      : user wants to read or view the contents of a file
 - file_write     : user wants to create, write, or save a file
 - file_list      : user wants to list files or directories
 - write_draft    : user wants a new piece of writing generated (email, essay, code, etc.)
 - write_edit     : user wants to edit or improve existing text
+
+External service intents (handled via Composio):
+- comms_list     : user wants to list messages, emails, or notifications from any service
+- comms_read     : user wants to read a specific message, email, or notification
+- comms_send     : user wants to send a message or email via any service
+- comms_search   : user wants to search messages or emails
+- calendar_list  : user wants to list calendar events or see their schedule
+- calendar_create: user wants to create or schedule a calendar event
+- task_list      : user wants to list tasks, issues, or to-dos
+- task_create    : user wants to create a new task, issue, or to-do item
+
+Fallback:
 - chat           : general conversation, greetings, questions about Alara, small talk
 - unknown        : cannot be classified into any of the above
 
 Respond with ONLY a JSON object in this exact format (no markdown fences, no extra text):
 {{"intent": "<intent>", "params": {{}}}}
 
-Optionally populate "params" with relevant extracted values such as:
+Optionally populate "params" with extracted values:
 - "path" for file intents
-- "query" for research
+- "query" for research, comms_search
 - "prompt" for write_draft
 - "original" and "instructions" for write_edit
+- "to", "subject", "body" for comms_send
+- "message_id" or "subject" for comms_read
+- "title", "date", "time", "attendees" for calendar_create
+- "title", "description", "project" for task_create
 
 User message: {message}
 """
+
+class IntentParser:
+    """Rule-based intent classifier — no network dependency.
+
+    Uses ordered substring rules to map a user message to an intent string.
+    Deterministic and suitable for unit tests.  For production classification
+    use ``parse_intent()`` which delegates to Gemini.
+
+    Rules are checked in declaration order; the first match wins.  All pattern
+    comparisons are case-insensitive substring searches.
+    """
+
+    _RULES: list[tuple[str, list[str]]] = [
+        # Most specific patterns first — first match wins.
+        ("comms_search",    ["search email", "search message", "find email"]),
+        ("comms_send",      ["send an email", "send email", "email to ", "send message"]),
+        ("comms_read",      ["read the email", "read email", "open email", "read message"]),
+        ("comms_list",      ["inbox", "my email", "my message", "check email", "list email", "show email"]),
+        ("calendar_create", ["schedule a ", "create event", "add event", "book a meeting"]),
+        ("calendar_list",   ["meetings", "my calendar", "my schedule", "upcoming event"]),
+        ("task_create",     ["linear ticket", "create ticket", "create issue", "new ticket",
+                             "new issue", "add a task", "create a task"]),
+        ("task_list",       ["github issue", "open issue", "my tasks", "show issue",
+                             "list task", "my issue"]),
+        ("file_write",      ["write file", "create file", "save file"]),
+        ("file_read",       ["read file", "show file", "open file", "view file"]),
+        ("file_list",       ["list files", "list file", "show files", "files in "]),
+        ("write_draft",     ["draft a", "draft an", "write an essay", "compose a"]),
+        ("write_edit",      ["edit this", "rewrite this", "improve this"]),
+        ("research",        ["research ", "explain ", "what is ", "tell me about ", "how does"]),
+        ("chat",            ["hello", "hi there", "how are you", "hey alara"]),
+    ]
+
+    def classify(self, message: str) -> str:
+        """Return the intent string that best matches *message*.
+
+        Falls back to ``"chat"`` when no rule fires.
+        """
+        lower = message.lower()
+        for intent, patterns in self._RULES:
+            if any(p in lower for p in patterns):
+                return intent
+        return "chat"
+
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
@@ -57,7 +130,7 @@ def _strip_fences(text: str) -> str:
 
 
 def _is_transient(exc: Exception) -> bool:
-    """Return True for errors that are worth retrying (rate limit, unavailable)."""
+    """Return True for errors worth retrying (rate limit, service unavailable)."""
     msg = str(exc).upper()
     return any(code in msg for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
 
@@ -65,17 +138,16 @@ def _is_transient(exc: Exception) -> bool:
 def parse_intent(message: str, client: GeminiClient) -> dict:
     """Classify *message* into a structured intent dict.
 
-    Retries once on transient API errors before falling back.
+    Retries once on transient API errors before falling back to "chat".
 
     Returns:
-        A dict with keys "intent" (str) and "params" (dict).
-        Falls back to {"intent": "chat", "params": {}} on any failure.
+        {"intent": str, "params": dict}
     """
-    prompt = _CLASSIFICATION_PROMPT.format(message=message)
+    classification_prompt = _CLASSIFICATION_PROMPT.format(message=message)
 
     for attempt in range(2):
         try:
-            raw = client.chat(prompt, history=[])
+            raw = client.chat(classification_prompt, history=[])
             cleaned = _strip_fences(raw)
             result = json.loads(cleaned)
 
@@ -93,10 +165,12 @@ def parse_intent(message: str, client: GeminiClient) -> dict:
 
         except json.JSONDecodeError as exc:
             logger.warning("Intent JSON parse failure: %s", exc)
-            break  # Retrying won't fix a parse error.
+            break
         except Exception as exc:
             if attempt == 0 and _is_transient(exc):
-                logger.warning("Transient error during intent classification, retrying: %s", exc)
+                logger.warning(
+                    "Transient error during intent classification, retrying: %s", exc
+                )
                 continue
             logger.warning("Intent classification error: %s", exc)
             break

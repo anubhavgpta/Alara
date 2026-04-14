@@ -9,3 +9,12 @@ path = "C:/Users/Anubhav Gupta/alara-workspace"
 [alara]
 version = "0.1.0"
 first_run_complete = true
+
+[gemini]
+primary_model = "gemini-2.5-flash"
+fallback_model = "gemini-2.5-flash-lite"
+request_timeout_seconds = 30
+max_retries = 2
+
+[composio]
+toolkits = ["gmail"]
