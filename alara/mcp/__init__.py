@@ -1,0 +1,1 @@
+"""Alara MCP integration layer."""

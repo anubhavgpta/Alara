@@ -1,0 +1,11 @@
+[user]
+name = "Anubhav Gupta"
+timezone = "Asia/Kolkata"
+response_style = "concise"
+
+[workspace]
+path = "C:/Users/Anubhav Gupta/alara-workspace"
+
+[alara]
+version = "0.1.0"
+first_run_complete = true

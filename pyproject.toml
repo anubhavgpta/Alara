@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alara"
+version = "0.1.0"
+description = "Ambient Language and Reasoning Assistant"
+requires-python = ">=3.11"
+dependencies = [
+  "google-genai",
+  "prompt_toolkit>=3.0",
+  "keyring",
+  "cryptography",
+  "mcp",
+  "httpx",
+  "rich>=13.0",
+]
+
+[project.scripts]
+alara = "alara.main:run"
