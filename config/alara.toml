@@ -18,3 +18,11 @@ max_retries = 2
 
 [composio]
 toolkits = ["gmail"]
+
+[coding]
+backend = "aider"                          # "aider" | "openhands"
+aider_model = "gemini/gemini-2.5-flash"
+aider_encoding = "utf-8"                    # file encoding passed to aider --encoding (e.g. utf-16 for Windows-saved files)
+openhands_base_url = "http://localhost:3000"
+openhands_timeout_seconds = 120
+auto_commit = false

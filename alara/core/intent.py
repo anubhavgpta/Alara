@@ -26,6 +26,12 @@ _VALID_INTENTS = frozenset(
         "calendar_create",
         "task_list",
         "task_create",
+        # L2 coding intents
+        "code_edit",
+        "code_create",
+        "code_shell",
+        "code_git",
+        "code_review",
         # Fallback
         "chat",
         "unknown",
@@ -54,6 +60,13 @@ External service intents (handled via Composio):
 - calendar_create: user wants to create or schedule a calendar event
 - task_list      : user wants to list tasks, issues, or to-dos
 - task_create    : user wants to create a new task, issue, or to-do item
+
+Coding intents (handled via aider or OpenHands):
+- code_edit      : user wants to edit, fix, refactor, modify, or update existing code
+- code_create    : user wants to create, write, generate, or scaffold new code or files
+- code_shell     : user wants to run, execute, install, or test via shell commands
+- code_git       : user wants to commit, diff, status, push, log, or perform git operations
+- code_review    : user wants to explain, review, summarise, or understand code (read-only)
 
 Fallback:
 - chat           : general conversation, greetings, questions about Alara, small talk
@@ -98,6 +111,19 @@ class IntentParser:
                              "new issue", "add a task", "create a task"]),
         ("task_list",       ["github issue", "open issue", "my tasks", "show issue",
                              "list task", "my issue"]),
+        ("code_git",        ["git commit", "git diff", "git status", "git push", "git pull",
+                             "git log", "git show", "git blame", "git merge", "git rebase",
+                             "git stash", "git branch", "git checkout", "git add"]),
+        ("code_shell",      ["run the tests", "run tests", "npm install", "pip install",
+                             "execute ", "run the script", "run script", "install dependencies",
+                             "make build", "cargo build", "go build"]),
+        ("code_review",     ["review this code", "explain this code", "explain the code",
+                             "summarise the code", "summarize the code", "understand this code",
+                             "what does this code", "walk me through"]),
+        ("code_edit",       ["fix the bug", "fix bug", "refactor ", "edit the code",
+                             "update the function", "modify ", "fix the error"]),
+        ("code_create",     ["create a new file", "write a new", "scaffold ", "generate a",
+                             "create a class", "write a function", "generate code"]),
         ("file_write",      ["write file", "create file", "save file"]),
         ("file_read",       ["read file", "show file", "open file", "view file"]),
         ("file_list",       ["list files", "list file", "show files", "files in "]),

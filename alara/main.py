@@ -17,6 +17,9 @@ from rich.rule import Rule
 from rich.table import Table
 
 from alara import db
+from alara.coding.aider_backend import AiderBackend
+from alara.coding.base import CodingBackend
+from alara.coding.openhands_backend import OpenHandsBackend
 from alara.core.dispatch import dispatch
 from alara.core.errors import AlaraAPIError, AlaraConfigError, AlaraError, AlaraMCPError
 from alara.core.gemini import GeminiClient
@@ -110,6 +113,7 @@ async def _run_toolkit_selection(statuses: list) -> list[str]:
 
 async def _setup_composio(
     config: dict,
+    coding_backend: CodingBackend | None = None,
 ) -> tuple[ComposioMCPClient | None, MCPRegistry, SessionContext]:
     """Create a Composio session, run health checks, and let the user pick toolkits.
 
@@ -160,7 +164,9 @@ async def _setup_composio(
         return None, registry, empty_session()
 
     # --- Health check ---
-    statuses = await health.check_all(mcp_client, api_key, user_id, toolkits)
+    statuses = await health.check_all(
+        mcp_client, api_key, user_id, toolkits, coding_backend=coding_backend
+    )
     _console.print()
     _display_health_table(statuses)
     _console.print()
@@ -253,8 +259,29 @@ async def _main_async() -> None:
     from alara.setup.banner import display_banner
     display_banner()
 
+    if len(sys.argv) > 1:
+        logging.warning(
+            "CLI arguments are not supported. Use the REPL prompt or /code inside Alara."
+        )
+
+    # --- Instantiate coding backend ---
+    coding_cfg: dict = config.get("coding", {})
+    coding_backend_name: str = coding_cfg.get("backend", "aider")
+    coding_backend: CodingBackend
+    if coding_backend_name == "openhands":
+        coding_backend = OpenHandsBackend(
+            base_url=coding_cfg.get("openhands_base_url", "http://localhost:3000"),
+            timeout_seconds=int(coding_cfg.get("openhands_timeout_seconds", 120)),
+        )
+    else:
+        coding_backend = AiderBackend(
+            aider_model=coding_cfg.get("aider_model", "gemini/gemini-2.5-flash"),
+            encoding=coding_cfg.get("aider_encoding", "utf-8"),
+        )
+
     # --- Composio startup ---
-    mcp_client, registry, session_ctx = await _setup_composio(config)
+    mcp_client, registry, session_ctx = await _setup_composio(config, coding_backend=coding_backend)
+    session_ctx.coding_backend = coding_backend_name
 
     # --- Inject tool inventory into Gemini system prompt ---
     if session_ctx.active_toolkits:
@@ -268,6 +295,9 @@ async def _main_async() -> None:
     _console.print("Type your request, or 'exit' to quit.", justify="center")
     _console.print(Rule())
     _console.print()
+
+    # Note: /code and other slash commands are REPL-only. CLI argument execution
+    # is deferred to a future `alara run "<task>"` interface (planned for L4+).
 
     # --- REPL ---
     _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)

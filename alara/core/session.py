@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 
 @dataclass
@@ -15,6 +16,10 @@ class SessionContext:
         available_tools:   Full tool list returned by list_tools() this session.
         active_tools:      Subset of available_tools belonging to active_toolkits.
         started_at:        UTC timestamp when the session was created.
+        coding_workdir:    Working directory persisted across coding turns.
+                           None until the user provides one.
+        coding_backend:    Name of the active coding backend ("aider" or "openhands").
+                           Set from config at startup; None if coding not configured.
     """
 
     composio_mcp_url: str
@@ -22,6 +27,8 @@ class SessionContext:
     available_tools: list[dict]
     active_tools: list[dict]
     started_at: datetime
+    coding_workdir: Path | None = None
+    coding_backend: str | None = None
 
 
 def empty_session() -> SessionContext:

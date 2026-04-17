@@ -14,7 +14,11 @@ o88o     o8888o o888o `Y888""8o d888b    `Y888""8o
 
 
 def display_banner() -> None:
-    """Print the Alara ASCII banner in bright cyan, followed by a blank line."""
+    """Print the Alara ASCII banner centered in bright cyan, followed by a blank line."""
     console = Console()
-    console.print(BANNER, style="bold bright_cyan")
+    lines = BANNER.splitlines()
+    max_width = max((len(line) for line in lines if line), default=0)
+    left_pad = " " * max(0, (console.width - max_width) // 2)
+    padded = "\n".join(left_pad + line for line in lines)
+    console.print(padded, style="bold bright_cyan")
     console.print()

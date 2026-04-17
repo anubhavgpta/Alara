@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from alara.capabilities import files, research, writing
+from alara.capabilities import coding, files, research, writing
 from alara.core.errors import AlaraError, AlaraMCPError
 from alara.core.gemini import GeminiClient
 
@@ -32,6 +32,11 @@ _EXTERNAL_INTENTS: frozenset[str] = frozenset(
         "calendar_list", "calendar_create",
         "task_list", "task_create",
     }
+)
+
+# L2 coding intents handled by the coding agent.
+CODING_INTENTS: frozenset[str] = frozenset(
+    {"code_edit", "code_create", "code_shell", "code_git", "code_review"}
 )
 
 # Fallback args applied when Gemini arg-extraction fails or returns nothing.
@@ -379,6 +384,37 @@ async def dispatch(
     params = intent.get("params", {})
 
     try:
+        # ----------------------------------------------------------------
+        # /code slash command — bypasses intent classification
+        # ----------------------------------------------------------------
+        if message.startswith("/code"):
+            if session_ctx is None:
+                return "Coding agent requires a session context. Please restart Alara."
+            task_description = message[len("/code"):].strip()
+            await coding.handle(
+                "code_edit",
+                task_description,
+                session_ctx,
+                client,
+                config,
+            )
+            return ""
+
+        # ----------------------------------------------------------------
+        # L2 coding intents
+        # ----------------------------------------------------------------
+        if intent_name in CODING_INTENTS:
+            if session_ctx is None:
+                return "Coding agent requires a session context. Please restart Alara."
+            await coding.handle(
+                intent_name,
+                message,
+                session_ctx,
+                client,
+                config,
+            )
+            return ""
+
         # ----------------------------------------------------------------
         # L0 file intents
         # ----------------------------------------------------------------
