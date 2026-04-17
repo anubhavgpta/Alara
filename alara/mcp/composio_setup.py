@@ -16,14 +16,14 @@ def _resolve_connected_accounts(
 
     Queries all configured toolkits in one batched REST call.  Toolkits that
     have no active connection are omitted — the caller passes only the resolved
-    entries to client.create(), which is sufficient for the Tool Router to bind
+    entries to session.create(), which is sufficient for the Tool Router to bind
     the right accounts.
 
     Errors are swallowed and logged at DEBUG level; an empty dict is returned
     so the caller can still attempt session creation without explicit bindings.
 
     Args:
-        client:   Composio SDK client instance.
+        client:   composio_client.Composio instance.
         user_id:  Composio entity / user identifier.
         toolkits: Toolkit slugs to resolve (e.g. ["gmail", "slack"]).
     """
@@ -34,13 +34,10 @@ def _resolve_connected_accounts(
             toolkit_slugs=toolkits,
             statuses=["ACTIVE"],
         )
-        items: list = getattr(response, "items", [])
-        for item in items:
-            toolkit_obj = getattr(item, "toolkit", None)
-            slug: str = (getattr(toolkit_obj, "slug", None) or "").lower()
+        for item in response.items:
+            slug: str = (getattr(item.toolkit, "slug", None) or "").lower()
             account_id: str | None = getattr(item, "id", None)
             if slug and account_id and slug in [t.lower() for t in toolkits]:
-                # Keep the first (most recently created) entry per toolkit.
                 if slug not in result:
                     result[slug] = account_id
                     logger.debug(
@@ -59,8 +56,9 @@ def create_session(api_key: str, user_id: str, toolkits: list[str]) -> str:
     Composio manages OAuth, token refresh, and per-service auth for every
     toolkit — Alara never touches service credentials directly.
 
-    Active connected account IDs are resolved before calling client.create() and
-    passed via the ``connected_accounts`` parameter.  This serves two purposes:
+    Active connected account IDs are resolved before calling session.create()
+    and passed via the ``connected_accounts`` parameter.  This serves two
+    purposes:
 
     1. It overrides the Tool Router's default connection lookup, ensuring the
        session uses the current authenticated account for each toolkit rather
@@ -94,26 +92,24 @@ def create_session(api_key: str, user_id: str, toolkits: list[str]) -> str:
         )
 
     try:
-        from composio import Composio  # type: ignore[import]
+        from composio_client import Composio  # type: ignore[import]
 
         client = Composio(api_key=api_key)
 
-        # Resolve live connected account IDs for all configured toolkits.
         connected: dict[str, str] = _resolve_connected_accounts(
             client, user_id, toolkits
         )
-        logger.debug(
-            "Connected accounts resolved: %s",
-            list(connected.keys()),
-        )
+        logger.debug("Connected accounts resolved: %s", list(connected.keys()))
 
-        session = client.create(
-            user_id=user_id,
-            toolkits=toolkits,
-            connected_accounts=connected if connected else None,
-        )
-        url: str = session.mcp.url
-        # Log at DEBUG only — the URL contains auth context.
+        create_kwargs: dict = {
+            "user_id": user_id,
+            "toolkits": {"enable": toolkits},
+        }
+        if connected:
+            create_kwargs["connected_accounts"] = connected
+
+        response = client.tool_router.session.create(**create_kwargs)
+        url: str = response.mcp.url
         logger.debug(
             "Composio MCP URL obtained for user_id=%s toolkits=%s",
             user_id, toolkits,
@@ -144,7 +140,7 @@ def get_toolkit_tools(api_key: str, toolkit: str) -> list[dict]:
         toolkit:  Lowercase toolkit name (e.g. "gmail").
     """
     try:
-        from composio import Composio  # type: ignore[import]
+        from composio_client import Composio  # type: ignore[import]
 
         client = Composio(api_key=api_key)
         tools: list[dict] = []
@@ -155,7 +151,7 @@ def get_toolkit_tools(api_key: str, toolkit: str) -> list[dict]:
             if cursor:
                 kwargs["cursor"] = cursor
 
-            result = client.client.tools.list(**kwargs)
+            result = client.tools.list(**kwargs)
             for t in result.items:
                 tools.append(
                     {
@@ -218,8 +214,6 @@ def execute_action(api_key: str, user_id: str, tool_slug: str, args: dict) -> di
             tool_slug,
             list(result.keys()) if isinstance(result, dict) else type(result),
         )
-        # ComposioToolSet.execute_action may return {"successful", "data"} wrapper
-        # or the raw data dict directly depending on SDK version.
         if isinstance(result, dict) and "successful" in result:
             successful: bool = bool(result.get("successful", False))
             data: dict = result.get("data") or {}
@@ -243,16 +237,13 @@ def get_connection_status(api_key: str, user_id: str, toolkit: str) -> bool:
     scripts/connect_gmail.py) to authorise the service.  Errors during the
     check are logged and treated as not-connected rather than propagated.
 
-    Uses connected_accounts.list() with server-side filters so no per-object
-    attribute guessing is required.
-
     Args:
         api_key:  Composio API key.
         user_id:  Composio entity / user identifier.
         toolkit:  Lowercase toolkit name (e.g. "gmail").
     """
     try:
-        from composio import Composio  # type: ignore[import]
+        from composio_client import Composio  # type: ignore[import]
 
         client = Composio(api_key=api_key)
         response = client.connected_accounts.list(
@@ -260,7 +251,7 @@ def get_connection_status(api_key: str, user_id: str, toolkit: str) -> bool:
             toolkit_slugs=[toolkit.lower()],
             statuses=["ACTIVE"],
         )
-        return bool(getattr(response, "items", []))
+        return bool(response.items)
     except Exception as exc:
         logger.debug(
             "Could not check Composio connection status for toolkit '%s': %s",

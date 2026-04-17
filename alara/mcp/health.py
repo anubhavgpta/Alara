@@ -6,11 +6,15 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from rich import print as rich_print
+from rich.table import Table
+
 from alara.mcp import composio_setup
 from alara.mcp.client import ComposioMCPClient
 
 if TYPE_CHECKING:
     from alara.coding.base import CodingBackend
+    from alara.tasks.queue import TaskQueue
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +29,40 @@ class ToolkitStatus:
     error: str | None
 
 
+def render_health_table(statuses: list[ToolkitStatus]) -> None:
+    """Render per-service health as a Rich table to stdout."""
+    if not statuses:
+        rich_print("[dim]No health data available.[/dim]")
+        return
+    table = Table(title="Composio Toolkit Status", show_header=True, header_style="bold")
+    table.add_column("Toolkit", style="cyan", min_width=14)
+    table.add_column("Status", min_width=12)
+    table.add_column("Tools", justify="right", min_width=6)
+    table.add_column("Auth", min_width=36)
+
+    for s in statuses:
+        if s.error:
+            status_str = "[red]unavailable[/red]"
+            auth_str = f"[red]{s.error[:50]}[/red]"
+        elif s.connected:
+            status_str = "[green]ready[/green]"
+            auth_str = "[green]authed[/green]"
+        else:
+            status_str = "[yellow]needs auth[/yellow]"
+            auth_str = f"[yellow]run: composio add {s.name}[/yellow]"
+
+        table.add_row(s.name, status_str, str(s.tool_count), auth_str)
+
+    rich_print(table)
+
+
 async def check_all(
     mcp_client: ComposioMCPClient,
     api_key: str,
     user_id: str,
     configured_toolkits: list[str],
     coding_backend: CodingBackend | None = None,
+    task_queue: TaskQueue | None = None,
 ) -> list[ToolkitStatus]:
     """Return per-toolkit health status for all configured toolkits.
 
@@ -99,5 +131,28 @@ async def check_all(
                     error=str(exc)[:80],
                 )
             )
+
+    # --- Task queue health check ---
+    if task_queue is None:
+        statuses.append(
+            ToolkitStatus(
+                name="Task Queue",
+                connected=False,
+                tool_count=0,
+                error="Task queue not initialised",
+            )
+        )
+    else:
+        executor = task_queue._executor
+        running = executor is not None and not getattr(executor, "_shutdown", True)
+        statuses.append(
+            ToolkitStatus(
+                name="Task Queue",
+                connected=running,
+                tool_count=0,
+                error=None if running else "Task queue executor is shut down",
+            )
+        )
+        logger.debug("Health: task_queue running=%s", running)
 
     return statuses

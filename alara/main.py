@@ -1,7 +1,13 @@
 """Alara entry point — async startup sequence and REPL."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from alara.tasks.queue import TaskQueue
 
 import anyio
 import sys
@@ -14,7 +20,6 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.shortcuts import checkboxlist_dialog
 from rich.console import Console
 from rich.rule import Rule
-from rich.table import Table
 
 from alara import db
 from alara.coding.aider_backend import AiderBackend
@@ -43,10 +48,14 @@ _console = Console()
 
 
 def _configure_logging() -> None:
+    from rich.logging import RichHandler
+    # RichHandler prevents background thread log output from interleaving with
+    # the prompt_toolkit input line. Full thread-safe console lock deferred to L4.
     logging.basicConfig(
         level=logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
+        format="%(name)s: %(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
     )
     # Suppress noisy library loggers — their INFO output interferes with
     # prompt_toolkit's full-screen dialogs (background httpx keepalives write
@@ -59,29 +68,6 @@ def _load_config() -> dict:
     with _CONFIG_PATH.open("rb") as fh:
         return tomllib.load(fh)
 
-
-def _display_health_table(statuses: list) -> None:
-    """Render a rich Table showing per-toolkit Composio health."""
-    table = Table(title="Composio Toolkit Status", show_header=True, header_style="bold")
-    table.add_column("Toolkit", style="cyan", min_width=14)
-    table.add_column("Status", min_width=12)
-    table.add_column("Tools", justify="right", min_width=6)
-    table.add_column("Auth", min_width=36)
-
-    for s in statuses:
-        if s.error:
-            status_str = "[red]unavailable[/red]"
-            auth_str = f"[red]{s.error[:50]}[/red]"
-        elif s.connected:
-            status_str = "[green]ready[/green]"
-            auth_str = "[green]authed[/green]"
-        else:
-            status_str = "[yellow]needs auth[/yellow]"
-            auth_str = f"[yellow]run: composio add {s.name}[/yellow]"
-
-        table.add_row(s.name, status_str, str(s.tool_count), auth_str)
-
-    _console.print(table)
 
 
 async def _run_toolkit_selection(statuses: list) -> list[str]:
@@ -114,6 +100,7 @@ async def _run_toolkit_selection(statuses: list) -> list[str]:
 async def _setup_composio(
     config: dict,
     coding_backend: CodingBackend | None = None,
+    task_queue: TaskQueue | None = None,
 ) -> tuple[ComposioMCPClient | None, MCPRegistry, SessionContext]:
     """Create a Composio session, run health checks, and let the user pick toolkits.
 
@@ -165,10 +152,12 @@ async def _setup_composio(
 
     # --- Health check ---
     statuses = await health.check_all(
-        mcp_client, api_key, user_id, toolkits, coding_backend=coding_backend
+        mcp_client, api_key, user_id, toolkits,
+        coding_backend=coding_backend,
+        task_queue=task_queue,
     )
     _console.print()
-    _display_health_table(statuses)
+    health.render_health_table(statuses)
     _console.print()
 
     available_statuses = [s for s in statuses if not s.error]
@@ -207,6 +196,7 @@ async def _setup_composio(
         available_tools=all_tools,
         active_tools=active_tools,
         started_at=datetime.now(timezone.utc),
+        health_statuses=list(statuses),
     )
 
     logger.info(
@@ -264,6 +254,11 @@ async def _main_async() -> None:
             "CLI arguments are not supported. Use the REPL prompt or /code inside Alara."
         )
 
+    # --- Initialise task queue (before Composio so health check can report it) ---
+    from alara.tasks.queue import TaskQueue
+    db_path = Path.home() / ".alara" / "alara.db"
+    task_queue = TaskQueue(db_path=db_path)
+
     # --- Instantiate coding backend ---
     coding_cfg: dict = config.get("coding", {})
     coding_backend_name: str = coding_cfg.get("backend", "aider")
@@ -280,8 +275,12 @@ async def _main_async() -> None:
         )
 
     # --- Composio startup ---
-    mcp_client, registry, session_ctx = await _setup_composio(config, coding_backend=coding_backend)
+    mcp_client, registry, session_ctx = await _setup_composio(
+        config, coding_backend=coding_backend, task_queue=task_queue
+    )
     session_ctx.coding_backend = coding_backend_name
+    session_ctx.session_id = session_id
+    session_ctx.task_queue = task_queue
 
     # --- Inject tool inventory into Gemini system prompt ---
     if session_ctx.active_toolkits:
@@ -334,12 +333,13 @@ async def _main_async() -> None:
                     mcp_client=mcp_client,
                 )
 
-                _console.print()
-                _console.print(response)
-                _console.print()
+                if response is not None:
+                    _console.print()
+                    _console.print(response)
+                    _console.print()
 
                 db.save_message(session_id, "user", user_input)
-                db.save_message(session_id, "assistant", response)
+                db.save_message(session_id, "assistant", response or "")
 
             except AlaraError as exc:
                 logger.warning("Alara error in REPL loop: %s", exc)
@@ -353,6 +353,8 @@ async def _main_async() -> None:
         db.end_session(session_id)
         if mcp_client is not None:
             await mcp_client.disconnect()
+        if session_ctx.task_queue is not None:
+            session_ctx.task_queue.shutdown()
 
 
 def run() -> None:

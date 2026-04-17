@@ -1,8 +1,14 @@
 """Session state for a single Alara REPL session."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from alara.tasks.queue import TaskQueue
 
 
 @dataclass
@@ -29,6 +35,9 @@ class SessionContext:
     started_at: datetime
     coding_workdir: Path | None = None
     coding_backend: str | None = None
+    session_id: int = 0
+    task_queue: TaskQueue | None = None
+    health_statuses: list = field(default_factory=list)
 
 
 def empty_session() -> SessionContext:

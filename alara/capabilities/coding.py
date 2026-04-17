@@ -220,7 +220,7 @@ async def _stage_and_commit(message: str, workdir: Path) -> CodingResult:
         "git", "add", "-A",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(workdir),
+        cwd=workdir,
     )
     _, add_stderr_bytes = await add_proc.communicate()
     if add_proc.returncode != 0:
@@ -232,11 +232,13 @@ async def _stage_and_commit(message: str, workdir: Path) -> CodingResult:
         "git", "commit", "-m", message,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(workdir),
+        cwd=workdir,
     )
-    _, commit_stderr_bytes = await commit_proc.communicate()
+    commit_stdout_bytes, commit_stderr_bytes = await commit_proc.communicate()
     if commit_proc.returncode != 0:
-        err = commit_stderr_bytes.decode("utf-8", errors="replace").strip()
+        stderr = commit_stderr_bytes.decode("utf-8", errors="replace").strip()
+        stdout = commit_stdout_bytes.decode("utf-8", errors="replace").strip()
+        err = stderr or stdout or f"git commit exited with code {commit_proc.returncode}"
         logger.error(
             "_stage_and_commit: git commit failed (rc=%d): %s", commit_proc.returncode, err
         )
@@ -399,10 +401,11 @@ async def handle(
                 commit_message = _extract_commit_message(user_input, gemini_client)
             logger.info("code_git commit: message=%r workdir=%s", commit_message, workdir)
             result = await _stage_and_commit(commit_message, workdir)
-            if result.success:
-                rich_print(result.summary)
-            else:
-                rich_print(f"[red]{result.error}[/red]")
+            if not result.success:
+                logger.error("Git commit failed: %s", result.error)
+                rich_print(f"[red]Git commit failed:[/red] {result.error}")
+                return
+            rich_print(result.summary)
         else:
             await _run_git_direct(user_input, workdir, gemini_client)
         return

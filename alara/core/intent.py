@@ -32,6 +32,11 @@ _VALID_INTENTS = frozenset(
         "code_shell",
         "code_git",
         "code_review",
+        # Background task intents
+        "research_submit",
+        "research_status",
+        "research_fetch",
+        "research_cancel",
         # Fallback
         "chat",
         "unknown",
@@ -68,6 +73,12 @@ Coding intents (handled via aider or OpenHands):
 - code_git       : user wants to commit, diff, status, push, log, or perform git operations
 - code_review    : user wants to explain, review, summarise, or understand code (read-only)
 
+Background task intents:
+- research_submit: user wants to run research in the background, e.g. "research X in the background", "look into Y async", "background research on Z"
+- research_status: user wants to check background task status, e.g. "what's the status of my tasks", "task status", "show my background tasks"
+- research_fetch : user wants to retrieve a completed task result, e.g. "get results for task 3", "show me task 2", "fetch task result 5"
+- research_cancel: user wants to cancel a background task, e.g. "cancel task 4", "stop task 2"
+
 Fallback:
 - chat           : general conversation, greetings, questions about Alara, small talk
 - unknown        : cannot be classified into any of the above
@@ -76,7 +87,8 @@ Respond with ONLY a JSON object in this exact format (no markdown fences, no ext
 {{"intent": "<intent>", "params": {{}}}}
 
 Optionally populate "params" with extracted values:
-- "path" for file intents
+- "path" and "content" for file_write (content = the exact text to write into the file)
+- "path" for file_read and file_list
 - "query" for research, comms_search
 - "prompt" for write_draft
 - "original" and "instructions" for write_edit
@@ -111,6 +123,13 @@ class IntentParser:
                              "new issue", "add a task", "create a task"]),
         ("task_list",       ["github issue", "open issue", "my tasks", "show issue",
                              "list task", "my issue"]),
+        ("research_cancel",  ["cancel task", "stop task"]),
+        ("research_fetch",   ["get results for task", "show me task", "fetch task result",
+                              "results for task"]),
+        ("research_status",  ["status of my tasks", "task status", "show my background tasks",
+                              "background tasks", "my tasks status"]),
+        ("research_submit",  ["research in the background", "background research",
+                              "look into", "async research", "research async"]),
         ("code_git",        ["git commit", "git diff", "git status", "git push", "git pull",
                              "git log", "git show", "git blame", "git merge", "git rebase",
                              "git stash", "git branch", "git checkout", "git add"]),

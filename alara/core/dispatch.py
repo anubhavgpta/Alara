@@ -385,6 +385,25 @@ async def dispatch(
 
     try:
         # ----------------------------------------------------------------
+        # /health slash command — re-display startup health table
+        # ----------------------------------------------------------------
+        if message.startswith("/health"):
+            from alara.mcp.health import render_health_table
+            if session_ctx is not None and session_ctx.health_statuses:
+                render_health_table(session_ctx.health_statuses)
+            else:
+                from rich import print as rich_print
+                rich_print("[dim]No health data available for this session.[/dim]")
+            return ""
+
+        # ----------------------------------------------------------------
+        # /task slash command — bypasses intent classification
+        # ----------------------------------------------------------------
+        if message.startswith("/task"):
+            from alara.capabilities import task_manager
+            return await task_manager.handle_slash(message, session_ctx)
+
+        # ----------------------------------------------------------------
         # /code slash command — bypasses intent classification
         # ----------------------------------------------------------------
         if message.startswith("/code"):
@@ -414,6 +433,16 @@ async def dispatch(
                 config,
             )
             return ""
+
+        # ----------------------------------------------------------------
+        # Background task intents
+        # ----------------------------------------------------------------
+        _TASK_INTENTS = {"research_submit", "research_status", "research_fetch", "research_cancel"}
+        if intent_name in _TASK_INTENTS:
+            from alara.capabilities import task_manager
+            if session_ctx is None:
+                return "Task manager requires a session context. Please restart Alara."
+            return await task_manager.handle(intent_name, message, session_ctx, session_ctx.task_queue)
 
         # ----------------------------------------------------------------
         # L0 file intents

@@ -90,6 +90,18 @@ def _get_connection() -> sqlite3.Connection:
             ts TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        )
+    """)
     conn.commit()
 
     if not _schema_is_valid(conn):
