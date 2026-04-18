@@ -37,6 +37,10 @@ _VALID_INTENTS = frozenset(
         "research_status",
         "research_fetch",
         "research_cancel",
+        # L5 memory intents
+        "memory_list",
+        "memory_forget",
+        "memory_clear",
         # Fallback
         "chat",
         "unknown",
@@ -78,6 +82,11 @@ Background task intents:
 - research_status: user wants to check background task status, e.g. "what's the status of my tasks", "task status", "show my background tasks"
 - research_fetch : user wants to retrieve a completed task result, e.g. "get results for task 3", "show me task 2", "fetch task result 5"
 - research_cancel: user wants to cancel a background task, e.g. "cancel task 4", "stop task 2"
+
+Memory intents:
+- memory_list  : user wants to see all stored memories, e.g. "show my memories", "list memories", "what do you remember"
+- memory_forget: user wants to delete a specific memory by ID, e.g. "forget memory 3", "delete memory 5"
+- memory_clear : user wants to wipe all memories, e.g. "clear all memories", "forget everything", "reset memory"
 
 Fallback:
 - chat           : general conversation, greetings, questions about Alara, small talk
@@ -123,6 +132,9 @@ class IntentParser:
                              "new issue", "add a task", "create a task"]),
         ("task_list",       ["github issue", "open issue", "my tasks", "show issue",
                              "list task", "my issue"]),
+        ("memory_clear",     ["clear all memories", "forget everything", "reset memory", "wipe memory"]),
+        ("memory_forget",    ["forget memory", "delete memory", "remove memory"]),
+        ("memory_list",      ["show my memories", "list memories", "what do you remember", "my memories"]),
         ("research_cancel",  ["cancel task", "stop task"]),
         ("research_fetch",   ["get results for task", "show me task", "fetch task result",
                               "results for task"]),

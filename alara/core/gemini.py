@@ -105,7 +105,13 @@ class GeminiClient:
             f"around you.\n"
             f"Prioritise accuracy, privacy, and helpfulness. Never fabricate facts."
         )
+        self._memory_context: str = ""
         logger.debug("System prompt built for user: %s", self._name)
+
+    def set_memory_context(self, context: str) -> None:
+        """Prepend a memory context block to every system prompt sent to Gemini."""
+        self._memory_context = context
+        logger.debug("Memory context set (%d chars)", len(context))
 
     def _call_api(self, message: str, history: list[dict], model: str) -> str:
         """Single raw API call to Gemini — no retry logic, no exception wrapping.
@@ -132,11 +138,17 @@ class GeminiClient:
             )
         )
 
+        effective_system = (
+            f"{self._memory_context}\n{self._system_prompt}"
+            if self._memory_context
+            else self._system_prompt
+        )
+
         response = self._client.models.generate_content(
             model=model,
             contents=contents,
             config=genai_types.GenerateContentConfig(
-                system_instruction=self._system_prompt,
+                system_instruction=effective_system,
             ),
         )
 

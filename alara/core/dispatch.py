@@ -385,6 +385,29 @@ async def dispatch(
 
     try:
         # ----------------------------------------------------------------
+        # /memory slash command — bypasses intent classification
+        # ----------------------------------------------------------------
+        if message.strip().startswith("/memory"):
+            parts = message.strip().split()
+            sub = parts[1] if len(parts) > 1 else ""
+            if sub == "list":
+                from alara.capabilities import memory as memory_cap
+                await memory_cap.handle("memory_list", message, session_ctx)
+                return ""
+            elif sub == "forget":
+                from alara.capabilities import memory as memory_cap
+                await memory_cap.handle("memory_forget", message, session_ctx)
+                return ""
+            elif sub == "clear":
+                from alara.capabilities import memory as memory_cap
+                await memory_cap.handle("memory_clear", message, session_ctx)
+                return ""
+            else:
+                from rich import print as rprint
+                rprint("[yellow]Usage: /memory list | /memory forget <id> | /memory clear[/yellow]")
+                return ""
+
+        # ----------------------------------------------------------------
         # /health slash command — re-display startup health table
         # ----------------------------------------------------------------
         if message.startswith("/health"):
@@ -537,6 +560,14 @@ async def dispatch(
             return await _dispatch_external(
                 intent_name, message, client, session_ctx, registry, mcp_client
             )
+
+        # ----------------------------------------------------------------
+        # L5 memory intents
+        # ----------------------------------------------------------------
+        if intent_name in ("memory_list", "memory_forget", "memory_clear"):
+            from alara.capabilities import memory as memory_cap
+            await memory_cap.handle(intent_name, message, session_ctx)
+            return ""
 
         # ----------------------------------------------------------------
         # Chat / unknown fallback

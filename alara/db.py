@@ -102,6 +102,26 @@ def _get_connection() -> sqlite3.Connection:
             completed_at TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memories (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER REFERENCES sessions(id),
+            key        TEXT NOT NULL,
+            value      TEXT NOT NULL,
+            source     TEXT NOT NULL DEFAULT 'auto',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(session_id, key)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_summaries (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER REFERENCES sessions(id),
+            summary    TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
 
     if not _schema_is_valid(conn):

@@ -245,6 +245,14 @@ async def _main_async() -> None:
         _console.print(f"[bold red]Database error: {exc}[/bold red]")
         return
 
+    # --- Load memory context into Gemini system prompt ---
+    try:
+        from alara.memory.context import build_memory_context
+        client.set_memory_context(build_memory_context())
+        logger.info("Memory context loaded")
+    except Exception as _mem_ctx_exc:
+        logger.warning("Failed to load memory context: %s", _mem_ctx_exc)
+
     # --- ASCII banner ---
     from alara.setup.banner import display_banner
     display_banner()
@@ -354,10 +362,23 @@ async def _main_async() -> None:
                 )
     finally:
         db.end_session(session_id)
+        try:
+            messages = _get_session_messages(session_id)
+            from alara.memory.extractor import extract_memories, summarise_session
+            await extract_memories(session_id, messages, client)
+            await summarise_session(session_id, messages, client)
+            logger.info("Session memory and summary saved")
+        except Exception as _mem_exc:
+            logger.warning("Memory extraction failed: %s", _mem_exc)
         if mcp_client is not None:
             await mcp_client.disconnect()
         if session_ctx.task_queue is not None:
             session_ctx.task_queue.shutdown()
+
+
+def _get_session_messages(session_id: int) -> list[dict]:
+    """Return all messages for a session ordered by time, as role/content dicts."""
+    return db.get_session_messages(session_id)
 
 
 def run() -> None:

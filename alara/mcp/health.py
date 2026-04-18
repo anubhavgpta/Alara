@@ -27,6 +27,7 @@ class ToolkitStatus:
     connected: bool   # True = Composio has an active auth connection for this toolkit
     tool_count: int
     error: str | None
+    info: str = ""    # optional informational message shown in auth column when healthy
 
 
 def render_health_table(statuses: list[ToolkitStatus]) -> None:
@@ -46,7 +47,7 @@ def render_health_table(statuses: list[ToolkitStatus]) -> None:
             auth_str = f"[red]{s.error[:50]}[/red]"
         elif s.connected:
             status_str = "[green]ready[/green]"
-            auth_str = "[green]authed[/green]"
+            auth_str = f"[green]{s.info}[/green]" if s.info else "[green]authed[/green]"
         else:
             status_str = "[yellow]needs auth[/yellow]"
             auth_str = f"[yellow]run: composio add {s.name}[/yellow]"
@@ -205,5 +206,37 @@ async def check_all(
             )
         )
         logger.debug("Health: task_queue running=%s", running)
+
+    # --- Memory health check ---
+    try:
+        import sqlite3
+        from pathlib import Path
+        _db_path = Path.home() / ".alara" / "alara.db"
+        _mem_conn = sqlite3.connect(str(_db_path), check_same_thread=False)
+        n_facts = _mem_conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        n_summaries = _mem_conn.execute(
+            "SELECT COUNT(*) FROM session_summaries"
+        ).fetchone()[0]
+        _mem_conn.close()
+        statuses.append(
+            ToolkitStatus(
+                name="Memory",
+                connected=True,
+                tool_count=n_facts,
+                error=None,
+                info=f"{n_facts} facts, {n_summaries} session summaries",
+            )
+        )
+        logger.debug("Health: memory facts=%d summaries=%d", n_facts, n_summaries)
+    except Exception as exc:
+        logger.warning("Memory health check failed: %s", exc)
+        statuses.append(
+            ToolkitStatus(
+                name="Memory",
+                connected=False,
+                tool_count=0,
+                error=str(exc)[:80],
+            )
+        )
 
     return statuses
