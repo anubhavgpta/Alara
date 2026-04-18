@@ -41,10 +41,14 @@ async def handle(
         if not confirm_action("Submit background research task?"):
             rich_print("[dim]Cancelled.[/dim]")
             return
-        keywords = {"research", "submit", "background", "task", "run", "start"}
-        description = " ".join(
-            w for w in user_input.split() if w.lower() not in keywords
-        ).strip() or user_input
+        # Strip only the leading trigger word ("research" or "submit") so that
+        # "research quantum computing" → "quantum computing" but
+        # "task alpha" (from /task submit) is preserved verbatim.
+        _words = user_input.split()
+        if _words and _words[0].lower() in {"research", "submit"}:
+            description = " ".join(_words[1:]).strip() or user_input
+        else:
+            description = user_input
         task = task_queue.submit(description, session.session_id)
         rich_print(f"[green]Task {task.id} submitted.[/green] Check status with /task status")
 

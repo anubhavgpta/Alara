@@ -116,7 +116,7 @@ async def check_all(
                     connected=available,
                     tool_count=0,
                     error=None if available else (
-                        f"{backend_label} not found — install it to enable coding features"
+                        f"{backend_label} not found - install it to enable coding features"
                     ),
                 )
             )
@@ -131,6 +131,57 @@ async def check_all(
                     error=str(exc)[:80],
                 )
             )
+
+    # --- Gmail health check ---
+    # The per-toolkit loop above already adds a row when "gmail" is in
+    # configured_toolkits.  Only add a separate "Gmail" row when gmail is not
+    # configured (e.g. Composio unavailable or toolkit not selected), so the
+    # user always sees a Gmail status without duplicating it.
+    _gmail_already_shown = any("gmail" in s.name.lower() for s in statuses)
+    if not _gmail_already_shown:
+        if mcp_client is None:
+            statuses.append(
+                ToolkitStatus(
+                    name="Gmail",
+                    connected=False,
+                    tool_count=0,
+                    error="MCP client not initialised",
+                )
+            )
+        else:
+            try:
+                all_tools = await mcp_client.list_tools()
+                gmail_tools = [t for t in all_tools if "GMAIL" in t["name"].upper()]
+                if gmail_tools:
+                    statuses.append(
+                        ToolkitStatus(
+                            name="Gmail",
+                            connected=True,
+                            tool_count=len(gmail_tools),
+                            error=None,
+                        )
+                    )
+                    logger.debug("Health: Gmail ready (%d tools)", len(gmail_tools))
+                else:
+                    statuses.append(
+                        ToolkitStatus(
+                            name="Gmail",
+                            connected=False,
+                            tool_count=0,
+                            error="Gmail not authenticated",
+                        )
+                    )
+                    logger.debug("Health: Gmail not authenticated")
+            except Exception as exc:
+                logger.warning("Gmail health check failed: %s", exc)
+                statuses.append(
+                    ToolkitStatus(
+                        name="Gmail",
+                        connected=False,
+                        tool_count=0,
+                        error=str(exc)[:80],
+                    )
+                )
 
     # --- Task queue health check ---
     if task_queue is None:

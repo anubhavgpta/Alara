@@ -255,7 +255,7 @@ async def _main_async() -> None:
         )
 
     # --- Initialise task queue (before Composio so health check can report it) ---
-    from alara.tasks.queue import TaskQueue
+    from alara.tasks.queue import TaskQueue, _console_lock
     db_path = Path.home() / ".alara" / "alara.db"
     task_queue = TaskQueue(db_path=db_path)
 
@@ -281,6 +281,8 @@ async def _main_async() -> None:
     session_ctx.coding_backend = coding_backend_name
     session_ctx.session_id = session_id
     session_ctx.task_queue = task_queue
+    session_ctx.mcp_client = mcp_client
+    session_ctx.gemini_client = client
 
     # --- Inject tool inventory into Gemini system prompt ---
     if session_ctx.active_toolkits:
@@ -334,9 +336,10 @@ async def _main_async() -> None:
                 )
 
                 if response is not None:
-                    _console.print()
-                    _console.print(response)
-                    _console.print()
+                    with _console_lock:
+                        _console.print()
+                        _console.print(response)
+                        _console.print()
 
                 db.save_message(session_id, "user", user_input)
                 db.save_message(session_id, "assistant", response or "")

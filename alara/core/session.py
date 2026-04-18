@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from alara.core.gemini import GeminiClient
+    from alara.mcp.client import ComposioMCPClient
     from alara.tasks.queue import TaskQueue
 
 
@@ -38,6 +40,8 @@ class SessionContext:
     session_id: int = 0
     task_queue: TaskQueue | None = None
     health_statuses: list = field(default_factory=list)
+    mcp_client: ComposioMCPClient | None = None
+    gemini_client: GeminiClient | None = None
 
 
 def empty_session() -> SessionContext:

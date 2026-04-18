@@ -404,6 +404,29 @@ async def dispatch(
             return await task_manager.handle_slash(message, session_ctx)
 
         # ----------------------------------------------------------------
+        # /gmail slash command — bypasses intent classification
+        # ----------------------------------------------------------------
+        if message.startswith("/gmail"):
+            _gmail_sub = message.strip().split()
+            _gmail_cmd = _gmail_sub[1].lower() if len(_gmail_sub) > 1 else ""
+            _gmail_map: dict[str, str] = {
+                "list":   "comms_list",
+                "read":   "comms_read",
+                "send":   "comms_send",
+                "search": "comms_search",
+            }
+            _gmail_intent = _gmail_map.get(_gmail_cmd)
+            if _gmail_intent is None:
+                from rich import print as rprint
+                rprint("[dim]Usage: /gmail list | read <id> | send | search <query>[/dim]")
+                return ""
+            if session_ctx is None:
+                return "Gmail requires a session context. Please restart Alara."
+            from alara.capabilities import comms
+            await comms.handle(_gmail_intent, message, session_ctx, session_ctx.mcp_client)
+            return ""
+
+        # ----------------------------------------------------------------
         # /code slash command — bypasses intent classification
         # ----------------------------------------------------------------
         if message.startswith("/code"):
@@ -488,6 +511,19 @@ async def dispatch(
                     "Please describe the changes you want."
                 )
             return writing.edit(params.get("original", message), instructions, client)
+
+        # ----------------------------------------------------------------
+        # L4 comms intents — handled by comms capability directly
+        # ----------------------------------------------------------------
+        COMMS_INTENTS: frozenset[str] = frozenset(
+            {"comms_list", "comms_read", "comms_send", "comms_search"}
+        )
+        if intent_name in COMMS_INTENTS:
+            if session_ctx is None:
+                return "Gmail requires a session context. Please restart Alara."
+            from alara.capabilities import comms
+            await comms.handle(intent_name, message, session_ctx, session_ctx.mcp_client)
+            return ""
 
         # ----------------------------------------------------------------
         # L1 external intents via Composio

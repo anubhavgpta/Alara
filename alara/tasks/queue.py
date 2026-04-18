@@ -5,12 +5,17 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+import threading
 from threading import Lock
 
 from alara.core.errors import AlaraError
 from alara.tasks.models import BackgroundTask, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+# Acquired by both background task threads and the REPL main thread before any
+# console output, preventing interleaved rich/logging output during task runs.
+_console_lock: threading.Lock = threading.Lock()
 
 _CREATE_TASKS_TABLE = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -110,10 +115,12 @@ class TaskQueue:
                     conn.commit()
                 finally:
                     conn.close()
-            logger.debug("Task %d completed successfully", task_id)
+            with _console_lock:
+                logger.debug("Task %d completed successfully", task_id)
 
         except Exception as exc:
-            logger.exception("Task %d failed", task_id)
+            with _console_lock:
+                logger.exception("Task %d failed", task_id)
             completed_at = datetime.now(timezone.utc).isoformat()
             try:
                 with self._lock:
