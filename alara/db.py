@@ -122,6 +122,32 @@ def _get_connection() -> sqlite3.Connection:
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_runs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id      TEXT NOT NULL,
+            step_id      TEXT NOT NULL,
+            capability   TEXT NOT NULL,
+            status       TEXT NOT NULL,
+            tokens_used  INTEGER,
+            duration_ms  INTEGER,
+            error        TEXT,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mcp_tool_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id   INTEGER REFERENCES sessions(id),
+            service      TEXT NOT NULL,
+            tool         TEXT NOT NULL,
+            params       TEXT,
+            status       TEXT NOT NULL,
+            error        TEXT,
+            duration_ms  INTEGER,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
 
     if not _schema_is_valid(conn):

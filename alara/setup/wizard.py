@@ -216,13 +216,15 @@ def _write_config(
     timezone: str,
     response_style: str,
     workspace: str,
-    toolkits: list[str],
 ) -> None:
-    """Write a complete alara.toml (no secrets)."""
+    """Write a complete alara.toml (no secrets).
+
+    Connected app toolkits are discovered dynamically from Composio at
+    startup — no static list is written here.
+    """
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     safe_workspace = Path(workspace).as_posix()
     gd = _GEMINI_DEFAULTS
-    toolkits_toml = "[" + ", ".join(f'"{t}"' for t in toolkits) + "]"
 
     content = f"""[user]
 name = "{name}"
@@ -243,18 +245,20 @@ request_timeout_seconds = {gd['request_timeout_seconds']}
 max_retries = {gd['max_retries']}
 
 [composio]
-toolkits = {toolkits_toml}
 """
     _CONFIG_PATH.write_text(content, encoding="utf-8")
     logger.debug("Config written to %s", _CONFIG_PATH)
 
 
-def _patch_composio_to_config(toolkits: list[str]) -> None:
-    """Add or replace the [composio] section in an existing alara.toml."""
+def _patch_composio_to_config() -> None:
+    """Add or replace the [composio] section in an existing alara.toml.
+
+    The section is a marker only — connected apps are discovered dynamically
+    from Composio at startup, not listed here.
+    """
     content = _CONFIG_PATH.read_text(encoding="utf-8")
     content = re.sub(r"\[composio\].*?(?=\n\[|\Z)", "", content, flags=re.DOTALL).rstrip()
-    toolkits_toml = "[" + ", ".join(f'"{t}"' for t in toolkits) + "]"
-    content = content + f"\n\n[composio]\ntoolkits = {toolkits_toml}\n"
+    content = content + "\n\n[composio]\n"
     _CONFIG_PATH.write_text(content, encoding="utf-8")
     logger.debug("Patched [composio] section in %s", _CONFIG_PATH)
 
@@ -298,14 +302,14 @@ async def run_wizard() -> dict:
 
     await _collect_composio_api_key()
     await _collect_composio_user_id()
-    toolkits = await _collect_toolkits()
 
-    _write_config(name, timezone, response_style, workspace, toolkits)
+    _write_config(name, timezone, response_style, workspace)
 
     _console.print()
     _console.print(f"[bold green]Setup complete. Starting Alara, {name}.[/bold green]")
     _console.print(
-        "Connect each service with [bold]composio add <toolkit>[/bold] before using it."
+        "Connect apps with [bold]composio add <app>[/bold] — "
+        "Alara discovers them automatically on startup."
     )
     _console.print()
 
@@ -314,7 +318,7 @@ async def run_wizard() -> dict:
         "workspace": {"path": workspace},
         "alara": {"version": _VERSION, "first_run_complete": True},
         "gemini": dict(_GEMINI_DEFAULTS),
-        "composio": {"toolkits": toolkits},
+        "composio": {},
     }
 
 
@@ -334,14 +338,14 @@ async def run_composio_setup() -> None:
 
     await _collect_composio_api_key()
     await _collect_composio_user_id()
-    toolkits = await _collect_toolkits()
 
-    _patch_composio_to_config(toolkits)
+    _patch_composio_to_config()
 
     _console.print()
     _console.print("[bold green]Composio setup complete.[/bold green]")
     _console.print(
-        "Connect each service with [bold]composio add <toolkit>[/bold] before using it."
+        "Connect apps with [bold]composio add <app>[/bold] — "
+        "Alara discovers them automatically on startup."
     )
     _console.print()
 
@@ -360,14 +364,12 @@ def is_setup_complete() -> bool:
 
 
 def is_composio_configured() -> bool:
-    """Return True if alara.toml has a [composio] section with at least one toolkit."""
-    if not _CONFIG_PATH.exists():
-        return False
-    try:
-        with _CONFIG_PATH.open("rb") as fh:
-            config = tomllib.load(fh)
-        toolkits = config.get("composio", {}).get("toolkits", [])
-        return isinstance(toolkits, list) and len(toolkits) > 0
-    except Exception as exc:
-        logger.warning("Could not read composio config: %s", exc)
-        return False
+    """Return True if Composio credentials are stored in the vault.
+
+    Connected apps are discovered dynamically at startup — no toolkit list
+    in alara.toml is required.
+    """
+    return bool(
+        vault.get_secret("composio_api_key")
+        and vault.get_secret("composio_user_id")
+    )

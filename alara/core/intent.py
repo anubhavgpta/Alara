@@ -1,10 +1,16 @@
 """Intent classification for user messages."""
 
+from __future__ import annotations
+
 import json
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from alara.core.gemini import GeminiClient
+
+if TYPE_CHECKING:
+    from alara.core.session import SessionContext
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,11 @@ _VALID_INTENTS = frozenset(
         "memory_list",
         "memory_forget",
         "memory_clear",
+        # L6 multi-agent orchestration intents
+        "plan_create",
+        "plan_status",
+        # L7 dynamic MCP
+        "generic_mcp",
         # Fallback
         "chat",
         "unknown",
@@ -87,6 +98,10 @@ Memory intents:
 - memory_list  : user wants to see all stored memories, e.g. "show my memories", "list memories", "what do you remember"
 - memory_forget: user wants to delete a specific memory by ID, e.g. "forget memory 3", "delete memory 5"
 - memory_clear : user wants to wipe all memories, e.g. "clear all memories", "forget everything", "reset memory"
+
+Multi-agent orchestration intents:
+- plan_create  : user wants to plan and execute a multi-step goal, e.g. "plan a goal", "orchestrate", "run a multi-step plan", "create a plan for", "plan out"
+- plan_status  : user wants to see the current plan status, e.g. "plan status", "what is the plan status", "show plan progress"
 
 Fallback:
 - chat           : general conversation, greetings, questions about Alara, small talk
@@ -135,6 +150,9 @@ class IntentParser:
         ("memory_clear",     ["clear all memories", "forget everything", "reset memory", "wipe memory"]),
         ("memory_forget",    ["forget memory", "delete memory", "remove memory"]),
         ("memory_list",      ["show my memories", "list memories", "what do you remember", "my memories"]),
+        ("plan_status",      ["plan status", "what is the plan status", "show plan progress"]),
+        ("plan_create",      ["plan a goal", "orchestrate", "run a multi-step plan", "create a plan",
+                              "plan out", "multi-step"]),
         ("research_cancel",  ["cancel task", "stop task"]),
         ("research_fetch",   ["get results for task", "show me task", "fetch task result",
                               "results for task"]),
@@ -192,15 +210,33 @@ def _is_transient(exc: Exception) -> bool:
     return any(code in msg for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
 
 
-def parse_intent(message: str, client: GeminiClient) -> dict:
+_TOOL_MATCH_PROMPT = """\
+Given these available tools:
+{tool_list}
+Which single tool best matches this request? Reply with ONLY the tool name, nothing else. \
+If no tool matches, reply 'none'.
+
+Request: {message}"""
+
+
+def parse_intent(
+    message: str,
+    client: GeminiClient,
+    session: "SessionContext | None" = None,
+) -> dict:
     """Classify *message* into a structured intent dict.
 
     Retries once on transient API errors before falling back to "chat".
+    When the intent is "unknown" and a service_registry is available on
+    *session*, attempts to match the message to a discovered MCP tool.
 
     Returns:
         {"intent": str, "params": dict}
     """
     classification_prompt = _CLASSIFICATION_PROMPT.format(message=message)
+
+    intent = "unknown"
+    params: dict = {}
 
     for attempt in range(2):
         try:
@@ -218,10 +254,11 @@ def parse_intent(message: str, client: GeminiClient) -> dict:
                 params = {}
 
             logger.debug("Intent classified: %s params=%s", intent, params)
-            return {"intent": intent, "params": params}
+            break
 
         except json.JSONDecodeError as exc:
             logger.warning("Intent JSON parse failure: %s", exc)
+            intent = "chat"
             break
         except Exception as exc:
             if attempt == 0 and _is_transient(exc):
@@ -230,6 +267,36 @@ def parse_intent(message: str, client: GeminiClient) -> dict:
                 )
                 continue
             logger.warning("Intent classification error: %s", exc)
+            intent = "chat"
             break
 
-    return {"intent": "chat", "params": {}}
+    if intent == "unknown" and session is not None and session.service_registry is not None:
+        from alara.mcp.discovery import all_tools_flat
+
+        flat = all_tools_flat(session.service_registry)
+        if flat:
+            tool_list = "\n".join(
+                f"{m.name}: {m.description}" for m in flat
+            )
+            match_prompt = _TOOL_MATCH_PROMPT.format(
+                tool_list=tool_list, message=message
+            )
+            try:
+                response = client.chat(match_prompt, history=[]).strip()
+                if response.lower() != "none" and response:
+                    intent = "generic_mcp"
+                    session.pending_mcp_tool = response.strip()
+                    logger.debug(
+                        "generic_mcp fallback matched tool: %s", session.pending_mcp_tool
+                    )
+                else:
+                    intent = "chat"
+            except Exception as exc:
+                logger.warning("generic_mcp tool match failed: %s", exc)
+                intent = "chat"
+        else:
+            intent = "chat"
+    elif intent == "unknown":
+        intent = "chat"
+
+    return {"intent": intent, "params": params}

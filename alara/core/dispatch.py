@@ -101,6 +101,20 @@ def _strip_json_fences(text: str) -> str:
     return match.group(1).strip() if match else text.strip()
 
 
+def _tool_short_name(tool_name: str) -> str:
+    """Derive a short human-readable action name from a tool slug.
+
+    Examples:
+        "GMAIL_FETCH_EMAILS"  -> "Fetch emails"
+        "GOOGLECALENDAR_CREATE_EVENT" -> "Create event"
+        "YOUTUBE" -> "Youtube"
+    """
+    parts = tool_name.split("_", 1)
+    if len(parts) < 2:
+        return tool_name.title()
+    return parts[1].replace("_", " ").lower().capitalize()
+
+
 def _select_tool(
     intent: str,
     query: str,
@@ -385,6 +399,98 @@ async def dispatch(
 
     try:
         # ----------------------------------------------------------------
+        # /tools [service] — services overview or per-service drill-down
+        # ----------------------------------------------------------------
+        if message.strip() == "/tools" or message.strip().lower().startswith("/tools "):
+            from rich import print as rprint
+            from rich.table import Table as RichTable
+            if session_ctx is None or session_ctx.service_registry is None:
+                rprint("[yellow]No service registry available. Run /refresh first.[/yellow]")
+                return ""
+            _registry = session_ctx.service_registry
+            _parts = message.strip().split(None, 1)
+            _svc_filter = _parts[1].strip().lower() if len(_parts) == 2 else ""
+
+            if _svc_filter:
+                # Drill-down: all tools for one service
+                if _svc_filter not in _registry.services:
+                    rprint(
+                        f"[yellow]Service '{_svc_filter}' not found. "
+                        "Run /tools to see available services.[/yellow]"
+                    )
+                    return ""
+                _svc_tools = list(_registry.services[_svc_filter].values())
+                tbl = RichTable(
+                    title=f"{_svc_filter.title()} Tools",
+                    show_header=True,
+                    header_style="bold",
+                )
+                tbl.add_column("Tool", style="bold", min_width=30)
+                tbl.add_column("Description", min_width=50)
+                tbl.add_column("Destructive", min_width=11)
+                for _m in _svc_tools:
+                    _dest = "[red]Yes[/red]" if _m.is_destructive else "[green]No[/green]"
+                    tbl.add_row(_m.name, _m.description[:80], _dest)
+                rprint(tbl)
+            else:
+                # Top-level: one row per service
+                if not _registry.services:
+                    rprint("[yellow]No services discovered. Run /refresh to discover services.[/yellow]")
+                    return ""
+                tbl = RichTable(
+                    title="Connected Services",
+                    show_header=True,
+                    header_style="bold",
+                )
+                tbl.add_column("Service", style="cyan", min_width=16)
+                tbl.add_column("Connected", min_width=9)
+                tbl.add_column("Tools", justify="right", min_width=5)
+                tbl.add_column("Sample Actions", min_width=40)
+                for _svc_name, _tools_dict in sorted(_registry.services.items()):
+                    _manifests = list(_tools_dict.values())
+                    _count = len(_manifests)
+                    _samples = [_tool_short_name(_m.name) for _m in _manifests[:3]]
+                    _sample_str = ", ".join(_samples)
+                    if _count > 3:
+                        _sample_str += "..."
+                    tbl.add_row(
+                        _svc_name.title(),
+                        "[green]Yes[/green]",
+                        str(_count),
+                        _sample_str,
+                    )
+                rprint(tbl)
+            return ""
+
+        # ----------------------------------------------------------------
+        # /use <service> <tool_name> <natural language params>
+        # ----------------------------------------------------------------
+        if message.strip().startswith("/use "):
+            from rich import print as rprint
+            parts = message.strip().split(None, 3)
+            if len(parts) < 4:
+                rprint("[yellow]Usage: /use <service> <tool_name> <natural language params>[/yellow]")
+                return ""
+            _tool_name = parts[2]
+            _nl_params = parts[3]
+            from alara.capabilities.generic_mcp import handle as mcp_handle
+            await mcp_handle(_tool_name, _nl_params, session_ctx)
+            return ""
+
+        # ----------------------------------------------------------------
+        # /refresh — rediscover MCP services
+        # ----------------------------------------------------------------
+        if message.strip() == "/refresh":
+            from rich import print as rprint
+            from alara.mcp.discovery import discover_services
+            if session_ctx is None:
+                rprint("[yellow]No session context available.[/yellow]")
+                return ""
+            session_ctx.service_registry = await discover_services(session_ctx)
+            rprint("[green]Service registry refreshed.[/green]")
+            return ""
+
+        # ----------------------------------------------------------------
         # /memory slash command — bypasses intent classification
         # ----------------------------------------------------------------
         if message.strip().startswith("/memory"):
@@ -464,6 +570,20 @@ async def dispatch(
                 config,
             )
             return ""
+
+        # ----------------------------------------------------------------
+        # /plan slash command — bypasses intent classification
+        # ----------------------------------------------------------------
+        if message.strip().startswith("/plan"):
+            goal = message.strip()[len("/plan"):].strip()
+            if not goal:
+                from rich import print as rprint
+                rprint("[yellow]Usage: /plan <goal>[/yellow]")
+                return ""
+            from alara.agents.planner import create_plan
+            from alara.agents.executor import execute_plan
+            plan = await create_plan(goal, session_ctx)
+            return await execute_plan(plan, session_ctx)
 
         # ----------------------------------------------------------------
         # L2 coding intents
@@ -567,6 +687,26 @@ async def dispatch(
         if intent_name in ("memory_list", "memory_forget", "memory_clear"):
             from alara.capabilities import memory as memory_cap
             await memory_cap.handle(intent_name, message, session_ctx)
+            return ""
+
+        # ----------------------------------------------------------------
+        # L6 multi-agent orchestration intents
+        # ----------------------------------------------------------------
+        if intent_name == "plan_create":
+            from alara.agents.planner import create_plan
+            from alara.agents.executor import execute_plan
+            plan = await create_plan(message, session_ctx)
+            await execute_plan(plan, session_ctx)
+            return ""
+
+        # ----------------------------------------------------------------
+        # L7 generic MCP tool execution
+        # ----------------------------------------------------------------
+        if intent_name == "generic_mcp" and session_ctx is not None and session_ctx.pending_mcp_tool:
+            tool_name = session_ctx.pending_mcp_tool
+            session_ctx.pending_mcp_tool = None
+            from alara.capabilities.generic_mcp import handle as mcp_handle
+            await mcp_handle(tool_name, message, session_ctx)
             return ""
 
         # ----------------------------------------------------------------

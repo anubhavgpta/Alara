@@ -109,7 +109,6 @@ async def _setup_composio(
     """
     logger = logging.getLogger(__name__)
 
-    toolkits: list[str] = config.get("composio", {}).get("toolkits", [])
     registry = MCPRegistry()
 
     api_key = vault.get_secret("composio_api_key")
@@ -122,12 +121,15 @@ async def _setup_composio(
         )
         return None, registry, empty_session()
 
+    # --- Discover connected apps dynamically — no hardcoded list ---
+    toolkits: list[str] = composio_setup.get_all_connected_slugs(api_key, user_id)
     if not toolkits:
         _console.print(
-            "[yellow]No Composio toolkits configured. "
-            "Continuing with core capabilities only.[/yellow]"
+            "[yellow]No connected apps found in Composio. "
+            "Run `composio add <app>` to connect an app, then restart Alara.[/yellow]"
         )
         return None, registry, empty_session()
+    logger.info("Connected Composio apps: %s", toolkits)
 
     # --- Create Composio Tool Router session ---
     try:
@@ -150,7 +152,7 @@ async def _setup_composio(
         )
         return None, registry, empty_session()
 
-    # --- Health check ---
+    # --- Infrastructure health check ---
     statuses = await health.check_all(
         mcp_client, api_key, user_id, toolkits,
         coding_backend=coding_backend,
@@ -160,8 +162,27 @@ async def _setup_composio(
     health.render_health_table(statuses)
     _console.print()
 
-    available_statuses = [s for s in statuses if not s.error]
-    if not available_statuses:
+    # --- Per-app toolkit statuses for the selection dialog ---
+    # health.check_all now reports infrastructure only (Task Queue, Memory, etc.).
+    # Build toolkit statuses directly from the configured app slugs so the
+    # checkboxlist shows real Composio apps, not internal health rows.
+    from alara.mcp.health import ToolkitStatus
+    toolkit_statuses: list[ToolkitStatus] = []
+    _toolkit_tools_cache: dict[str, list[dict]] = {}
+    for tk in toolkits:
+        _tk_connected = composio_setup.get_connection_status(api_key, user_id, tk)
+        _tk_tools = composio_setup.get_toolkit_tools(api_key, tk)
+        _toolkit_tools_cache[tk] = _tk_tools
+        toolkit_statuses.append(
+            ToolkitStatus(
+                name=tk,
+                connected=_tk_connected,
+                tool_count=len(_tk_tools),
+                error=None,
+            )
+        )
+
+    if not toolkit_statuses:
         _console.print(
             "[yellow]No toolkits are reachable. "
             "Continuing with core capabilities only.[/yellow]"
@@ -170,7 +191,7 @@ async def _setup_composio(
         return None, registry, empty_session()
 
     # --- Toolkit selection ---
-    selected_toolkits = await _run_toolkit_selection(available_statuses)
+    selected_toolkits = await _run_toolkit_selection(toolkit_statuses)
     if not selected_toolkits:
         _console.print(
             "[yellow]No toolkits selected. "
@@ -185,7 +206,7 @@ async def _setup_composio(
     # via the REST API so the registry contains GMAIL_* etc.
     all_tools: list[dict] = []
     for tk in selected_toolkits:
-        all_tools.extend(composio_setup.get_toolkit_tools(api_key, tk))
+        all_tools.extend(_toolkit_tools_cache.get(tk) or composio_setup.get_toolkit_tools(api_key, tk))
 
     registry.load(all_tools)
     active_tools = all_tools  # all fetched tools belong to selected toolkits
@@ -292,6 +313,10 @@ async def _main_async() -> None:
     session_ctx.mcp_client = mcp_client
     session_ctx.gemini_client = client
 
+    # --- Discover MCP services ---
+    from alara.mcp.discovery import discover_services
+    session_ctx.service_registry = await discover_services(session_ctx)
+
     # --- Inject tool inventory into Gemini system prompt ---
     if session_ctx.active_toolkits:
         fragment = registry.get_system_prompt_fragment(session_ctx.active_toolkits)
@@ -332,7 +357,7 @@ async def _main_async() -> None:
                 break
 
             try:
-                intent = parse_intent(user_input, client)
+                intent = parse_intent(user_input, client, session=session_ctx)
                 response = await dispatch(
                     intent,
                     user_input,

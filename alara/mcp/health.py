@@ -89,22 +89,6 @@ async def check_all(
         coding backend when coding_backend is not None.
     """
     statuses: list[ToolkitStatus] = []
-    for toolkit in configured_toolkits:
-        tools = composio_setup.get_toolkit_tools(api_key, toolkit)
-        tool_count = len(tools)
-        connected = composio_setup.get_connection_status(api_key, user_id, toolkit)
-        logger.debug(
-            "Health: toolkit=%s connected=%s tools=%d",
-            toolkit, connected, tool_count,
-        )
-        statuses.append(
-            ToolkitStatus(
-                name=toolkit,
-                connected=connected,
-                tool_count=tool_count,
-                error=None,
-            )
-        )
 
     # --- Coding backend health check (non-fatal) ---
     if coding_backend is not None:
@@ -133,57 +117,6 @@ async def check_all(
                 )
             )
 
-    # --- Gmail health check ---
-    # The per-toolkit loop above already adds a row when "gmail" is in
-    # configured_toolkits.  Only add a separate "Gmail" row when gmail is not
-    # configured (e.g. Composio unavailable or toolkit not selected), so the
-    # user always sees a Gmail status without duplicating it.
-    _gmail_already_shown = any("gmail" in s.name.lower() for s in statuses)
-    if not _gmail_already_shown:
-        if mcp_client is None:
-            statuses.append(
-                ToolkitStatus(
-                    name="Gmail",
-                    connected=False,
-                    tool_count=0,
-                    error="MCP client not initialised",
-                )
-            )
-        else:
-            try:
-                all_tools = await mcp_client.list_tools()
-                gmail_tools = [t for t in all_tools if "GMAIL" in t["name"].upper()]
-                if gmail_tools:
-                    statuses.append(
-                        ToolkitStatus(
-                            name="Gmail",
-                            connected=True,
-                            tool_count=len(gmail_tools),
-                            error=None,
-                        )
-                    )
-                    logger.debug("Health: Gmail ready (%d tools)", len(gmail_tools))
-                else:
-                    statuses.append(
-                        ToolkitStatus(
-                            name="Gmail",
-                            connected=False,
-                            tool_count=0,
-                            error="Gmail not authenticated",
-                        )
-                    )
-                    logger.debug("Health: Gmail not authenticated")
-            except Exception as exc:
-                logger.warning("Gmail health check failed: %s", exc)
-                statuses.append(
-                    ToolkitStatus(
-                        name="Gmail",
-                        connected=False,
-                        tool_count=0,
-                        error=str(exc)[:80],
-                    )
-                )
-
     # --- Task queue health check ---
     if task_queue is None:
         statuses.append(
@@ -206,6 +139,35 @@ async def check_all(
             )
         )
         logger.debug("Health: task_queue running=%s", running)
+
+    # --- AgentRuns health check ---
+    try:
+        import sqlite3
+        from pathlib import Path
+        _ar_db_path = Path.home() / ".alara" / "alara.db"
+        _ar_conn = sqlite3.connect(str(_ar_db_path), check_same_thread=False)
+        n_runs = _ar_conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
+        _ar_conn.close()
+        statuses.append(
+            ToolkitStatus(
+                name="AgentRuns",
+                connected=True,
+                tool_count=n_runs,
+                error=None,
+                info=f"{n_runs} agent runs logged",
+            )
+        )
+        logger.debug("Health: agent_runs count=%d", n_runs)
+    except Exception as exc:
+        logger.warning("AgentRuns health check failed: %s", exc)
+        statuses.append(
+            ToolkitStatus(
+                name="AgentRuns",
+                connected=False,
+                tool_count=0,
+                error=str(exc)[:80],
+            )
+        )
 
     # --- Memory health check ---
     try:
@@ -233,6 +195,35 @@ async def check_all(
         statuses.append(
             ToolkitStatus(
                 name="Memory",
+                connected=False,
+                tool_count=0,
+                error=str(exc)[:80],
+            )
+        )
+
+    # --- MCPToolLog health check ---
+    try:
+        import sqlite3
+        from pathlib import Path
+        _tl_db_path = Path.home() / ".alara" / "alara.db"
+        _tl_conn = sqlite3.connect(str(_tl_db_path), check_same_thread=False)
+        n_calls = _tl_conn.execute("SELECT COUNT(*) FROM mcp_tool_log").fetchone()[0]
+        _tl_conn.close()
+        statuses.append(
+            ToolkitStatus(
+                name="MCPToolLog",
+                connected=True,
+                tool_count=n_calls,
+                error=None,
+                info=f"{n_calls} tool calls logged",
+            )
+        )
+        logger.debug("Health: mcp_tool_log count=%d", n_calls)
+    except Exception as exc:
+        logger.warning("MCPToolLog health check failed: %s", exc)
+        statuses.append(
+            ToolkitStatus(
+                name="MCPToolLog",
                 connected=False,
                 tool_count=0,
                 error=str(exc)[:80],

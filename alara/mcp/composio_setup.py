@@ -230,6 +230,41 @@ def execute_action(api_key: str, user_id: str, tool_slug: str, args: dict) -> di
         ) from exc
 
 
+def get_all_connected_slugs(api_key: str, user_id: str) -> list[str]:
+    """Return all toolkit slugs with an active Composio connection for *user_id*.
+
+    Queries connected_accounts without a pre-specified toolkit list so the
+    result is fully dynamic — any newly connected app will appear automatically.
+
+    Errors are swallowed and logged at DEBUG level; an empty list is returned
+    so callers degrade gracefully.
+
+    Args:
+        api_key:  Composio API key.
+        user_id:  Composio entity / user identifier.
+    """
+    try:
+        from composio_client import Composio  # type: ignore[import]
+
+        client = Composio(api_key=api_key)
+        response = client.connected_accounts.list(
+            user_ids=[user_id],
+            statuses=["ACTIVE", "INITIATED"],
+        )
+        slugs: list[str] = []
+        seen: set[str] = set()
+        for item in response.items:
+            slug: str = (getattr(item.toolkit, "slug", None) or "").lower()
+            if slug and slug not in seen:
+                slugs.append(slug)
+                seen.add(slug)
+        logger.debug("get_all_connected_slugs: user=%s slugs=%s", user_id, slugs)
+        return slugs
+    except Exception as exc:
+        logger.debug("Could not fetch connected slugs for user '%s': %s", user_id, exc)
+        return []
+
+
 def get_connection_status(api_key: str, user_id: str, toolkit: str) -> bool:
     """Return True if *user_id* has an active Composio connection for *toolkit*.
 
@@ -249,7 +284,7 @@ def get_connection_status(api_key: str, user_id: str, toolkit: str) -> bool:
         response = client.connected_accounts.list(
             user_ids=[user_id],
             toolkit_slugs=[toolkit.lower()],
-            statuses=["ACTIVE"],
+            statuses=["ACTIVE", "INITIATED"],
         )
         return bool(response.items)
     except Exception as exc:

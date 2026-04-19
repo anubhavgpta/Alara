@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from alara.core.gemini import GeminiClient
     from alara.mcp.client import ComposioMCPClient
+    from alara.mcp.discovery import ServiceRegistry
     from alara.tasks.queue import TaskQueue
 
 
@@ -42,6 +43,8 @@ class SessionContext:
     health_statuses: list = field(default_factory=list)
     mcp_client: ComposioMCPClient | None = None
     gemini_client: GeminiClient | None = None
+    service_registry: ServiceRegistry | None = None
+    pending_mcp_tool: str | None = None
 
 
 def empty_session() -> SessionContext:

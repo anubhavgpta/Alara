@@ -17,7 +17,8 @@ request_timeout_seconds = 30
 max_retries = 2
 
 [composio]
-toolkits = ["gmail"]
+# Connected apps are discovered automatically from Composio at startup.
+# Use `composio add <app>` to connect a new app — no changes here needed.
 
 [coding]
 backend = "aider"                          # "aider" | "openhands"
