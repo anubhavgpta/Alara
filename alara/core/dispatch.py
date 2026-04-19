@@ -399,6 +399,54 @@ async def dispatch(
 
     try:
         # ----------------------------------------------------------------
+        # /watch slash command — watcher management
+        # ----------------------------------------------------------------
+        if message.strip().startswith("/watch"):
+            from rich import print as rprint
+            parts = message.strip().split(None, 1)
+            sub = parts[1].strip() if len(parts) > 1 else ""
+            if sub.startswith("add"):
+                _watch_intent = "watch_add"
+                _watch_input = sub[3:].strip()
+            elif sub == "list":
+                _watch_intent = "watch_list"
+                _watch_input = ""
+            elif sub.startswith("remove"):
+                _watch_intent = "watch_remove"
+                _watch_input = sub[6:].strip()
+            elif sub.startswith("pause"):
+                _watch_intent = "watch_pause"
+                _watch_input = sub[5:].strip()
+            else:
+                rprint("[yellow]Usage: /watch add <trigger> | list | remove <id> | pause <id>[/yellow]")
+                return ""
+            from alara.capabilities.watcher import handle as watcher_handle
+            await watcher_handle(_watch_intent, _watch_input, session_ctx)
+            return ""
+
+        # ----------------------------------------------------------------
+        # /digest — show unsurfaced watcher results
+        # ----------------------------------------------------------------
+        if message.strip() == "/digest":
+            from rich import print as rprint
+            from rich.panel import Panel as RichPanel
+            from alara.watchers import store as watcher_store
+            _digest_results = watcher_store.get_unsurfaced_results()
+            if not _digest_results:
+                rprint("[yellow]No new watcher results since last digest.[/yellow]")
+                return ""
+            for _r in _digest_results:
+                rprint(
+                    RichPanel(
+                        _r.result,
+                        title=f"Watcher #{_r.watcher_id} — {_r.created_at}",
+                        subtitle=_r.summary,
+                    )
+                )
+            watcher_store.mark_results_surfaced([_r.id for _r in _digest_results])
+            return ""
+
+        # ----------------------------------------------------------------
         # /tools [service] — services overview or per-service drill-down
         # ----------------------------------------------------------------
         if message.strip() == "/tools" or message.strip().lower().startswith("/tools "):
@@ -697,6 +745,34 @@ async def dispatch(
             from alara.agents.executor import execute_plan
             plan = await create_plan(message, session_ctx)
             await execute_plan(plan, session_ctx)
+            return ""
+
+        # ----------------------------------------------------------------
+        # L8 watcher intents
+        # ----------------------------------------------------------------
+        _WATCHER_INTENTS = {"watch_add", "watch_list", "watch_remove", "watch_pause"}
+        if intent_name in _WATCHER_INTENTS:
+            from alara.capabilities.watcher import handle as watcher_handle
+            await watcher_handle(intent_name, message, session_ctx)
+            return ""
+
+        if intent_name == "digest":
+            from rich import print as rprint
+            from rich.panel import Panel as RichPanel
+            from alara.watchers import store as watcher_store
+            _digest_results = watcher_store.get_unsurfaced_results()
+            if not _digest_results:
+                rprint("[yellow]No new watcher results since last digest.[/yellow]")
+                return ""
+            for _r in _digest_results:
+                rprint(
+                    RichPanel(
+                        _r.result,
+                        title=f"Watcher #{_r.watcher_id} — {_r.created_at}",
+                        subtitle=_r.summary,
+                    )
+                )
+            watcher_store.mark_results_surfaced([_r.id for _r in _digest_results])
             return ""
 
         # ----------------------------------------------------------------

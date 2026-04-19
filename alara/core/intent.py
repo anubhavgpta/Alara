@@ -52,6 +52,12 @@ _VALID_INTENTS = frozenset(
         "plan_status",
         # L7 dynamic MCP
         "generic_mcp",
+        # L8 watcher intents
+        "watch_add",
+        "watch_list",
+        "watch_remove",
+        "watch_pause",
+        "digest",
         # Fallback
         "chat",
         "unknown",
@@ -103,6 +109,13 @@ Multi-agent orchestration intents:
 - plan_create  : user wants to plan and execute a multi-step goal, e.g. "plan a goal", "orchestrate", "run a multi-step plan", "create a plan for", "plan out"
 - plan_status  : user wants to see the current plan status, e.g. "plan status", "what is the plan status", "show plan progress"
 
+Watcher intents:
+- watch_add    : user wants to set up a recurring monitor or reminder, e.g. "watch for X", "remind me daily about Y", "every morning summarise Z", "monitor X"
+- watch_list   : user wants to see their active watchers, e.g. "show my watchers", "list watchers", "what am I watching"
+- watch_remove : user wants to delete a watcher, e.g. "remove watcher 3", "delete watcher 2"
+- watch_pause  : user wants to pause a watcher, e.g. "pause watcher 2", "stop watcher 1 temporarily"
+- digest       : user wants unsurfaced watcher results, e.g. "show digest", "what did I miss", "show me watcher results"
+
 Fallback:
 - chat           : general conversation, greetings, questions about Alara, small talk
 - unknown        : cannot be classified into any of the above
@@ -153,6 +166,11 @@ class IntentParser:
         ("plan_status",      ["plan status", "what is the plan status", "show plan progress"]),
         ("plan_create",      ["plan a goal", "orchestrate", "run a multi-step plan", "create a plan",
                               "plan out", "multi-step"]),
+        ("digest",           ["show digest", "what did i miss", "watcher results", "show me watcher"]),
+        ("watch_remove",     ["remove watcher", "delete watcher", "stop watcher"]),
+        ("watch_pause",      ["pause watcher"]),
+        ("watch_list",       ["show my watchers", "list watchers", "what am i watching", "my watchers"]),
+        ("watch_add",        ["watch for", "remind me daily", "every morning", "monitor ", "watch every"]),
         ("research_cancel",  ["cancel task", "stop task"]),
         ("research_fetch",   ["get results for task", "show me task", "fetch task result",
                               "results for task"]),

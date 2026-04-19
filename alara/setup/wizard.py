@@ -35,14 +35,21 @@ _KNOWN_TOOLKITS: list[tuple[str, str]] = [
     ("linear",         "Linear — issues and projects"),
 ]
 
-# One shared PromptSession for the entire wizard lifecycle.
-# prompt_async() is safe to call inside a running event loop.
-_session: PromptSession = PromptSession()
+# Lazily created on first _ask() call so that importing wizard.py never
+# touches the Win32 console handle (which fails when stdout is piped).
+_session: PromptSession | None = None
+
+
+def _get_session() -> PromptSession:
+    global _session
+    if _session is None:
+        _session = PromptSession()
+    return _session
 
 
 async def _ask(message: str, *, is_password: bool = False) -> str:
     """Thin wrapper around PromptSession.prompt_async() for wizard prompts."""
-    return await _session.prompt_async(message, is_password=is_password)
+    return await _get_session().prompt_async(message, is_password=is_password)
 
 
 # ---------------------------------------------------------------------------

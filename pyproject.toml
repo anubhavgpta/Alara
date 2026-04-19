@@ -19,6 +19,7 @@ dependencies = [
   "rich>=13.0",
   "tenacity>=8.0",
   "composio>=0.7",
+  "schedule>=1.2",
 ]
 
 [project.scripts]

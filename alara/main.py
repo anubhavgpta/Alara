@@ -48,14 +48,33 @@ _console = Console()
 
 
 def _configure_logging() -> None:
+    from logging.handlers import RotatingFileHandler
     from rich.logging import RichHandler
+
+    log_dir = Path.home() / ".alara"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "alara.log"
+
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=2 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+    )
+
     # RichHandler prevents background thread log output from interleaving with
     # the prompt_toolkit input line. Full thread-safe console lock deferred to L4.
     logging.basicConfig(
         level=logging.INFO,
         format="%(name)s: %(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
+        handlers=[
+            RichHandler(rich_tracebacks=True, show_path=False),
+            file_handler,
+        ],
     )
     # Suppress noisy library loggers — their INFO output interferes with
     # prompt_toolkit's full-screen dialogs (background httpx keepalives write
@@ -317,6 +336,18 @@ async def _main_async() -> None:
     from alara.mcp.discovery import discover_services
     session_ctx.service_registry = await discover_services(session_ctx)
 
+    # --- REPL prompt session (created early so scheduler can surface results) ---
+    _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    repl_session: PromptSession = PromptSession(
+        history=FileHistory(str(_HISTORY_PATH))
+    )
+    session_ctx.pt_app = repl_session
+
+    # --- Start proactive watcher scheduler ---
+    from alara.watchers.scheduler import register_all_watchers, start_scheduler
+    register_all_watchers(session_ctx, repl_session)
+    scheduler_thread = start_scheduler(session_ctx, repl_session)
+
     # --- Inject tool inventory into Gemini system prompt ---
     if session_ctx.active_toolkits:
         fragment = registry.get_system_prompt_fragment(session_ctx.active_toolkits)
@@ -334,10 +365,6 @@ async def _main_async() -> None:
     # is deferred to a future `alara run "<task>"` interface (planned for L4+).
 
     # --- REPL ---
-    _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    repl_session: PromptSession = PromptSession(
-        history=FileHistory(str(_HISTORY_PATH))
-    )
     prompt_str = f"{user_name}> "
 
     try:

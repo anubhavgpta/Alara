@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from prompt_toolkit import PromptSession
     from alara.core.gemini import GeminiClient
     from alara.mcp.client import ComposioMCPClient
     from alara.mcp.discovery import ServiceRegistry
@@ -45,6 +46,7 @@ class SessionContext:
     gemini_client: GeminiClient | None = None
     service_registry: ServiceRegistry | None = None
     pending_mcp_tool: str | None = None
+    pt_app: PromptSession | None = None
 
 
 def empty_session() -> SessionContext:

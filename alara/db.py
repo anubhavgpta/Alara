@@ -148,6 +148,30 @@ def _get_connection() -> sqlite3.Connection:
             created_at   TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS watchers (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id   INTEGER REFERENCES sessions(id),
+            description  TEXT NOT NULL,
+            schedule     TEXT NOT NULL,
+            tool         TEXT,
+            params       TEXT,
+            last_run     TEXT,
+            last_result  TEXT,
+            status       TEXT NOT NULL DEFAULT 'active',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS watcher_results (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            watcher_id   INTEGER REFERENCES watchers(id),
+            result       TEXT,
+            summary      TEXT,
+            surfaced     INTEGER DEFAULT 0,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
 
     if not _schema_is_valid(conn):

@@ -230,4 +230,35 @@ async def check_all(
             )
         )
 
+    # --- Watchers health check ---
+    try:
+        import sqlite3
+        from pathlib import Path
+        _w_db_path = Path.home() / ".alara" / "alara.db"
+        _w_conn = sqlite3.connect(str(_w_db_path), check_same_thread=False)
+        n_watchers = _w_conn.execute(
+            "SELECT COUNT(*) FROM watchers WHERE status = 'active'"
+        ).fetchone()[0]
+        _w_conn.close()
+        statuses.append(
+            ToolkitStatus(
+                name="Watchers",
+                connected=True,
+                tool_count=n_watchers,
+                error=None,
+                info=f"{n_watchers} active watchers",
+            )
+        )
+        logger.debug("Health: watchers active=%d", n_watchers)
+    except Exception as exc:
+        logger.warning("Watchers health check failed: %s", exc)
+        statuses.append(
+            ToolkitStatus(
+                name="Watchers",
+                connected=False,
+                tool_count=0,
+                error=str(exc)[:80],
+            )
+        )
+
     return statuses
